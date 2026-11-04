@@ -1,3 +1,71 @@
 :root{--bg:#f3f6fb;--nav:#111d35;--ink:#19263b;--sub:#68788d;--blue:#2563eb;--edge:#e0e8f2;--green:#16865c;--red:#c93c48}*{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Tahoma,Arial,sans-serif;font-size:14px}button,input,select{font:inherit}button{border:0;border-radius:10px;padding:11px 14px;cursor:pointer;background:#e9eff8;color:var(--ink)}button:hover{filter:brightness(.97)}button:disabled{opacity:.46;cursor:not-allowed}.primary{background:var(--blue);color:white}.danger{background:#ffe9ea;color:var(--red)}.success{background:#e4f7eb;color:var(--green)}.wide{width:100%}.hidden{display:none!important}.muted,.subtle{color:var(--sub);font-size:13px}.small{font-size:12px}.layout{display:flex;min-height:100vh}aside{flex:0 0 246px;background:var(--nav);color:#eef3ff;padding:24px 14px;display:flex;flex-direction:column}.logo{font-size:23px;font-weight:800;white-space:nowrap;margin:2px 8px 22px}.logo b{color:#78adff}.logo.dark{color:var(--ink)}.aside-foot{font-size:11px;color:#a0b5d6;margin-top:auto;line-height:1.8}#sideName{margin:-10px 8px 24px;color:#aabbd0}nav button{display:block;width:100%;text-align:right;background:transparent;color:#d9e5f8;margin:3px 0}nav button.active,nav button:hover{background:#304667;color:#fff}main{flex:1;min-width:0;padding:24px}header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:20px}h1{font-size:24px;margin:0}h2{font-size:18px;margin:0 0 15px}.card{background:#fff;border:1px solid var(--edge);border-radius:15px;padding:19px;margin-bottom:16px;box-shadow:0 3px 15px #1e3a5f06}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.stat{font-size:24px;font-weight:800;color:var(--blue);padding-top:12px}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.row>*{flex:1}.row>button,.row>.chip{flex:0 0 auto}label{display:block;font-weight:600;font-size:12px;margin:12px 0}input,select{width:100%;padding:11px;border:1px solid #cbd6e4;border-radius:10px;background:white;color:var(--ink);margin-top:6px}input:focus,select:focus{outline:2px solid #a5c4ff}table{width:100%;border-collapse:collapse;min-width:540px}th,td{padding:12px 10px;text-align:right;border-bottom:1px solid var(--edge)}th{background:#f8fafd;color:#5c6c82}.scroll{overflow-x:auto}.chip{background:#e7f0ff;color:#1a57b1;padding:8px 11px;border-radius:99px;font-size:12px}.setup{max-width:510px;margin:7vh auto;padding:28px}.setup h1{margin-bottom:13px}.pos{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}.product-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.product-tile{text-align:right;background:white;border:1px solid var(--edge);border-radius:14px;min-height:120px;padding:13px}.product-tile:hover{border-color:#7da5fa}.product-tile b{display:block;margin:5px 0}.price{font-size:17px;font-weight:800;color:var(--green);margin-top:11px}.total{font-size:25px;font-weight:800;color:var(--blue)}.btn-sm{padding:7px 10px;font-size:12px}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0 14px}.notice{background:#fff8e5;border:1px solid #f8e1a4;padding:13px;border-radius:10px;line-height:1.8}.toast{position:fixed;bottom:22px;left:22px;background:var(--nav);color:#fff;border-radius:10px;padding:14px 22px;max-width:420px;box-shadow:0 10px 35px #0017;z-index:40}.empty{text-align:center;color:var(--sub);padding:25px}.tag{color:#a84219;background:#fff2e3;padding:5px;border-radius:7px;font-size:12px}.receipt{max-width:660px;margin:auto}.receipt h2{text-align:center;font-size:23px}.receipt .total{border-top:2px dashed #aaa;padding-top:15px}.actions{display:flex;gap:8px;flex-wrap:wrap}hr{border:0;border-top:1px solid var(--edge);margin:17px 0}
 @media(max-width:1050px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:800px){.layout{display:block}aside{display:block;padding:12px}.logo{margin:5px 0 14px}#sideName,.aside-foot{display:none}nav{display:flex;overflow-x:auto;gap:5px}nav button{width:auto;white-space:nowrap;flex:0 0 auto;font-size:12px}main{padding:14px}.pos{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}}@media(max-width:490px){.grid{grid-template-columns:1fr 1fr}.stat{font-size:18px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{margin:10px}.card{padding:14px}header h1{font-size:20px}}@media print{body{background:white!important}aside,header,.no-print,.toast{display:none!important}main{padding:0}.card{border:0;box-shadow:none}.receipt{max-width:80mm;font-size:11px}.receipt h2{font-size:17px}.receipt table{min-width:0;font-size:10px}.receipt th,.receipt td{padding:5px 2px}.receipt .total{font-size:18px}}
+/* Isolated POS responsive redesign */
+.mobile-pos{grid-template-columns:minmax(0,1.35fr) minmax(290px,1fr);align-items:start}
+.mobile-pos>*{min-width:0}
+.pos-search input{font-size:16px}
+.scan-actions{display:flex;gap:8px;margin-top:10px}
+.scan-actions>*{flex:1}
+#cameraPanel{margin-top:12px;padding:10px;border:1px solid var(--edge);border-radius:12px}
+#cameraReader{max-width:100%;overflow:hidden}
+#cameraReader video{max-width:100%;border-radius:10px}
+.mobile-pos .product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.mobile-pos .product-tile{min-width:0;overflow-wrap:anywhere}
+.pos-checkout{min-width:0}
+.cart-mobile{max-height:400px;overflow-y:auto}
+.cart-line{border:1px solid var(--edge);border-radius:11px;margin-bottom:9px;padding:10px}
+.cart-item-heading,.cart-line-bottom,.price-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cart-item-heading b{min-width:0;overflow-wrap:anywhere}
+.cart-line-bottom label{width:105px;margin:4px 0}
+.cart-line-bottom input{width:95px;margin-top:3px}
+.cart-item-price{font-weight:700}
+.cart-counter{font-size:13px;background:#e6efff;border-radius:999px;padding:3px 10px}
+.price-row{margin:12px 0}
+.checkout-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.checkout-actions button{min-height:46px}
+.barcode-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.barcode-display{overflow-x:auto;text-align:center;padding:14px;border:1px solid var(--edge);border-radius:12px}
+.barcode-display svg{max-width:100%;height:auto}
+@media(max-width:1080px){
+.mobile-pos{grid-template-columns:minmax(0,1fr)}
+.pos-checkout{width:100%}
+}
+@media(max-width:800px){
+.mobile-pos{display:flex;flex-direction:column;gap:10px}
+.mobile-pos .pos-products,.mobile-pos .pos-checkout{width:100%}
+.mobile-pos .product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.mobile-pos .product-tile{min-height:100px;padding:12px}
+.cart-mobile{max-height:none}
+}
+@media(max-width:480px){
+main{overflow-x:hidden}
+#content{min-width:0}
+.mobile-pos .product-grid{gap:8px}
+.mobile-pos .product-tile{font-size:13px}
+.mobile-pos .card{padding:12px}
+.scan-actions{flex-direction:column}
+.checkout-actions{grid-template-columns:1fr}
+.mobile-pos .total{font-size:22px;white-space:nowrap}
+}
+@media print{.barcode-display{border:0}.barcode-display svg{max-width:100%}}
+
+/* Barcode camera inside the product form */
+.barcode-entry{margin:14px 0;padding:14px;border:1px solid var(--edge);border-radius:13px;background:#f9fbff;min-width:0}
+.barcode-entry label{font-size:14px}
+.barcode-entry input{font-size:16px}
+.barcode-entry .barcode-tools button{min-height:44px}
+.camera-panel{margin:12px 0;padding:12px;background:#fff;border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+#productCameraReader{max-width:480px;width:100%;margin:auto}
+#productCameraReader video{max-width:100%;border-radius:10px}
+#productCameraStatus{line-height:1.8}
+@media(max-width:480px){.barcode-entry{padding:10px}.barcode-entry .barcode-tools{display:grid;grid-template-columns:1fr}.barcode-entry .barcode-tools button{width:100%}}
+
+/* iPhone still-image barcode scan fallback */
+.barcode-photo-label{display:block;margin:12px 0;padding:10px 12px;border:1px dashed #9ab7e5;border-radius:12px;background:#f1f6ff;color:#194b92;font-size:13px}
+.barcode-photo-label input{display:block;margin-top:8px;font-size:13px;max-width:100%}
+#cameraReader video,#productCameraReader video{object-fit:contain!important;max-width:100%;height:auto}
+
+/* Automatic Drive backup controls */
+.backup-toggle{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--edge);border-radius:10px;background:#f7faff;font-size:14px}
+.backup-toggle input{width:20px;height:20px;flex:0 0 auto;margin:0;accent-color:var(--blue)}
