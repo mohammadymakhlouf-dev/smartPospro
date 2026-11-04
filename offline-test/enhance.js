@@ -124,3 +124,61 @@ async function registerPreviewWorker(){
  }catch(e){console.warn("offline SW:",e);}
 }
 registerPreviewWorker();
+
+
+/* Barcode creation in the same isolated demo. */
+const BARCODE_LIB="https://unpkg.com/jsbarcode@3.12.1/dist/JsBarcode.all.min.js";
+let barcodeLibPromise=null;
+function ensureBarcodeLib(){
+ if(window.JsBarcode)return Promise.resolve();
+ if(barcodeLibPromise)return barcodeLibPromise;
+ barcodeLibPromise=new Promise((resolve,reject)=>{
+  const script=document.createElement("script");script.src=BARCODE_LIB;
+  script.onload=()=>window.JsBarcode?resolve():reject(Error("مكتبة إنشاء الباركود غير متاحة"));
+  script.onerror=()=>reject(Error("تعذر تحميل مكتبة توليد الباركود. افتح الصفحة مرة واحدة مع الإنترنت."));
+  document.head.append(script);
+ }).catch(e=>{barcodeLibPromise=null;throw e;});
+ return barcodeLibPromise;
+}
+function freshBarcode(){
+ let value;
+ do{value="29"+String(Date.now()).slice(-9)+String(Math.floor(Math.random()*10000)).padStart(4,"0");}
+ while(app.data.products.some(p=>p.barcode===value));
+ return value;
+}
+async function drawBarcodePreview(){
+ const input=document.querySelector('#formProduct [name="barcode"]');
+ const svg=document.getElementById("barcodePreviewSvg");
+ if(!svg||!input?.value?.trim())return;
+ try{await ensureBarcodeLib();JsBarcode(svg,input.value.trim(),{format:"CODE128",width:2,height:70,displayValue:true,margin:8});}
+ catch(e){notify(e.message);}
+}
+const originalProductForm=productForm;
+productForm=function(pid=""){
+ originalProductForm(pid);
+ const form=$("formProduct");
+ if(!form)return;
+ const input=form.querySelector('[name="barcode"]');
+ const controls=document.createElement("div");controls.className="card";controls.style.marginTop="12px";
+ controls.innerHTML='<h2>باركود المنتج</h2><p class="muted">يمكن توليد باركود تلقائي وعرضه وطباعته.</p><div class="row"><button id="generateCode" type="button">توليد باركود</button><button id="drawCode" type="button">عرض الباركود</button><button id="printCode" type="button">طباعة الباركود</button></div><div class="scroll" style="text-align:center;margin-top:10px"><svg id="barcodePreviewSvg"></svg></div>';
+ form.append(controls);
+ document.getElementById("generateCode").onclick=()=>{
+  input.value=freshBarcode();drawBarcodePreview();
+ };
+ document.getElementById("drawCode").onclick=drawBarcodePreview;
+ document.getElementById("printCode").onclick=async()=>{
+  await drawBarcodePreview();
+  const svg=document.getElementById("barcodePreviewSvg");
+  if(!svg?.children.length)return;
+  const pane=window.open("","_blank");
+  if(!pane){notify("اسمح بالنوافذ المنبثقة لطباعة الرمز");return;}
+  const name=form.querySelector('[name="name"]')?.value||"منتج";
+  pane.document.write('<!doctype html><html dir="rtl"><meta charset="UTF-8"><title>باركود</title><body style="text-align:center;font-family:Arial"><h3></h3><div></div></body></html>');
+  pane.document.querySelector("h3").textContent=name;
+  pane.document.querySelector("div").append(svg.cloneNode(true));
+  pane.document.close();
+  pane.focus();pane.print();
+ };
+ if(!pid&&!input.value)input.value=freshBarcode();
+ if(input.value)drawBarcodePreview();
+};
