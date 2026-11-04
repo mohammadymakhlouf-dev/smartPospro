@@ -1,4 +1,4 @@
-const CACHE="smartpos-mobile-preview-v8";
+const CACHE="smartpos-mobile-preview-v9";
 const ASSETS=["./","./index.html","./styles.css","./app.js","./drive.js","./icon.svg","./manifest.webmanifest","./vendor/JsBarcode.all.min.js","./vendor/html5-qrcode.min.js"];
 self.addEventListener("install",event=>{
  event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
