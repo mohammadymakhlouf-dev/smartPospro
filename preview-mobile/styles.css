@@ -69,3 +69,8 @@ main{overflow-x:hidden}
 /* Automatic Drive backup controls */
 .backup-toggle{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--edge);border-radius:10px;background:#f7faff;font-size:14px}
 .backup-toggle input{width:20px;height:20px;flex:0 0 auto;margin:0;accent-color:var(--blue)}
+
+/* Safari barcode action is always prominent, including on narrow iPhones */
+.barcode-entry .barcode-tools #scanExistingBarcode{display:block!important;visibility:visible!important;min-height:50px;font-size:15px;flex:1 0 100%;width:100%}
+.barcode-entry .barcode-photo-label{display:block!important;visibility:visible!important}
+#cameraReader,#productCameraReader{min-height:35px;max-width:100%;overflow:hidden}
