@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101d35">
+<title>SmartPOS Pro | اختبار قارئ QR والباركود</title>
+<style>
+:root{color-scheme:light;--ink:#192942;--blue:#2563eb;--line:#dfe6f1;--bg:#f2f6fc}
+*{box-sizing:border-box}
+body{font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:16px}
+main{max-width:650px;margin:0 auto}
+h1{font-size:23px;margin:0 0 5px}
+p{line-height:1.8}
+.card{background:white;border:1px solid var(--line);border-radius:17px;padding:18px;margin:13px 0;box-shadow:0 4px 20px #132f510a}
+.brand{font-weight:800;color:#1d3d74;font-size:14px;margin-bottom:12px}
+.muted{color:#697a91;font-size:13px}
+.row{display:flex;gap:9px;flex-wrap:wrap}
+button{font:inherit;border:0;padding:13px 16px;border-radius:11px;cursor:pointer;min-height:46px;background:#e8edf5;color:var(--ink)}
+button.primary{background:var(--blue);color:white;flex:1}
+button:disabled{opacity:.45;cursor:not-allowed}
+#reader{width:100%;min-height:60px;overflow:hidden}
+#reader video{max-width:100%;border-radius:12px;object-fit:cover}
+#reader canvas{max-width:100%}
+#status{padding:13px;border-radius:10px;background:#e9f1ff;color:#2254a0;font-size:13px;line-height:1.8}
+#status.error{background:#fff0ef;color:#a32323}
+#result{overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap;background:#f6f9ff;border-radius:10px;padding:15px;font-weight:bold;direction:auto;unicode-bidi:plaintext;min-height:52px}
+label{display:block;font-size:13px;font-weight:bold;margin:10px 0 5px}
+input{font:inherit;width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px}
+small{color:#66788b}a{color:#1f5fcb}
+hr{border:0;border-top:1px solid var(--line);margin:17px 0}
+</style>
+</head>
+<body>
+<main>
+<section class="card">
+<div class="brand">▣ SmartPOS Pro</div>
+<h1>📷 اختبار قارئ QR والباركود</h1>
+<p class="muted">صفحة مستقلة لتجربة كاميرا الجوال. لا تتصل بحسابك ولا تعدّل منتجاتك أو فواتيرك أو Google Drive.</p>
+<div id="status" role="status" aria-live="polite">جاهز للاختبار. اضغط «فتح الكاميرا» ثم اسمح بالوصول إليها.</div>
+<div class="row" style="margin:15px 0">
+<button id="start" class="primary">فتح الكاميرا الخلفية</button>
+<button id="stop" disabled>إيقاف الكاميرا</button>
+</div>
+<div id="reader"></div>
+<p class="muted">وجّه الكاميرا نحو رمز QR أو باركود CODE128 / EAN / UPC. جرّب الاقتراب والابتعاد قليلًا، ووفّر إضاءة جيدة.</p>
+</section>
+<section class="card">
+<h2 style="margin-top:0">نتيجة آخر مسح</h2>
+<div id="result" aria-live="polite">لم يتم مسح رمز بعد.</div>
+<p class="muted" id="format">النوع: —</p>
+<div class="row"><button id="copy" disabled>نسخ الرمز</button><button id="reset">مسح النتيجة</button></div>
+</section>
+<section class="card">
+<h2 style="margin-top:0">تجربة المسح من صورة</h2>
+<p class="muted">إذا لم تعمل الكاميرا، اختر صورة موجودة على هاتفك تحتوي على QR أو باركود. أوقف الكاميرا أولًا.</p>
+<input id="imageFile" type="file" accept="image/*">
+<p id="fileStatus" class="muted"></p>
+</section>
+<section class="card">
+<h2 style="margin-top:0">مساعدة</h2>
+<p class="muted">يجب فتح هذه الصفحة عبر HTTPS ومنح المتصفح إذن الكاميرا. على الآيفون جرّب Safari، وعلى أندرويد جرّب Chrome. عند أول فتح يلزم الإنترنت لتحميل مكتبة قراءة الرموز.</p>
+<p><a href="./">العودة إلى SmartPOS Pro</a></p>
+</section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let scanner=null,starting=false,lastValue="",lastAt=0,busyFile=false;
+let libPromise=null;
+const urls=[
+ "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
+ "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"
+];
+function status(msg,error=false){
+ const e=$("status");e.textContent=msg;e.classList.toggle("error",error);
+}
+function loadScript(url){
+ return new Promise((resolve,reject)=>{
+  const s=document.createElement("script");
+  s.src=url;s.async=true;
+  s.onload=resolve;s.onerror=()=>reject(Error("تعذر تحميل "+url));
+  document.head.appendChild(s);
+ });
+}
+function loadLibrary(){
+ if(window.Html5Qrcode)return Promise.resolve();
+ if(!libPromise)libPromise=(async()=>{
+  for(const url of urls){
+   try{await loadScript(url);if(window.Html5Qrcode)return;}
+   catch(e){console.warn(e);}
+  }
+  throw Error("تعذّر تحميل مكتبة قارئ الرموز. افحص اتصال الإنترنت.");
+ })().catch(e=>{libPromise=null;throw e;});
+ return libPromise;
+}
+function setButtons(active){
+ $("start").disabled=active;
+ $("stop").disabled=!active;
+}
+function readableError(e){
+ const msg=String(e?.message||e?.name||e);
+ if(/NotAllowed|Permission|denied|رفض/i.test(msg))
+  return "تم رفض إذن الكاميرا. اسمح بالوصول إلى الكاميرا من إعدادات المتصفح ثم أعد المحاولة.";
+ if(/NotFound|DevicesNotFound|device not found/i.test(msg))
+  return "لم يتم العثور على كاميرا متاحة.";
+ if(/NotReadable|TrackStart|in use/i.test(msg))
+  return "الكاميرا مستخدمة في تطبيق آخر أو تعذّر فتحها.";
+ return msg;
+}
+function onResult(value,detail){
+ const now=Date.now();
+ if(value===lastValue&&now-lastAt<2200)return;
+ lastValue=value;lastAt=now;
+ $("result").textContent=value;
+ const f=detail?.result?.format?.formatName||detail?.result?.format?.toString?.()||"تم التعرف على الرمز";
+ $("format").textContent="النوع: "+f;
+ $("copy").disabled=false;
+ status("✅ تم مسح الرمز بنجاح. يمكنك نسخ النتيجة أو مسح رمز آخر.");
+ if(navigator.vibrate)navigator.vibrate(100);
+}
+async function openCamera(){
+ if(starting||scanner)return;
+ if(!window.isSecureContext){status("تحتاج الكاميرا إلى صفحة HTTPS أو localhost.",true);return;}
+ if(!navigator.mediaDevices?.getUserMedia){status("المتصفح لا يدعم الوصول إلى الكاميرا.",true);return;}
+ starting=true;$("start").disabled=true;
+ status("جارٍ تحميل قارئ الرموز وتشغيل الكاميرا...");
+ try{
+  await loadLibrary();
+  const formats=Object.values(Html5QrcodeSupportedFormats);
+  scanner=new Html5Qrcode("reader",{formatsToSupport:formats,verbose:false});
+  await scanner.start(
+    {facingMode:"environment"},
+    {fps:10,qrbox:(w,h)=>({width:Math.max(150,Math.min(300,Math.floor(w*.85))),height:Math.max(110,Math.min(200,Math.floor(h*.56)))}),aspectRatio:1.3333333},
+    onResult,
+    ()=>{}
+  );
+  setButtons(true);status("الكاميرا تعمل. وجّهها نحو QR أو الباركود.");
+ }catch(e){
+  console.error(e);
+  status("تعذّر تشغيل القارئ: "+readableError(e),true);
+  if(scanner){try{await scanner.clear()}catch(_){} scanner=null;}
+  setButtons(false);
+ }finally{starting=false;if(!scanner)$("start").disabled=false;}
+}
+async function stopCamera(){
+ if(!scanner)return;
+ const active=scanner;scanner=null;
+ try{await active.stop()}catch(e){console.warn(e)}
+ try{await active.clear()}catch(e){console.warn(e)}
+ setButtons(false);status("تم إيقاف الكاميرا.");
+}
+async function scanImage(file){
+ if(!file||busyFile)return;
+ busyFile=true;$("fileStatus").textContent="جارٍ قراءة الصورة...";
+ let instance=null;
+ try{
+  await stopCamera();
+  await loadLibrary();
+  instance=new Html5Qrcode("reader",{verbose:false});
+  const result=await instance.scanFile(file,true);
+  onResult(result);
+  $("fileStatus").textContent="✅ تم التعرف على الرمز من الصورة.";
+ }catch(e){
+  $("fileStatus").textContent="تعذّر قراءة الرمز من الصورة: "+readableError(e);
+ }finally{
+  if(instance){try{await instance.clear()}catch(_){}}
+  busyFile=false;
+ }
+}
+$("start").addEventListener("click",openCamera);
+$("stop").addEventListener("click",stopCamera);
+$("imageFile").addEventListener("change",e=>scanImage(e.target.files?.[0]));
+$("copy").addEventListener("click",async()=>{
+ try{await navigator.clipboard.writeText(lastValue);status("✅ تم نسخ الرمز.");}
+ catch(e){status("تعذّر النسخ تلقائيًا، حدّد النتيجة وانسخها يدويًا.",true);}
+});
+$("reset").addEventListener("click",()=>{lastValue="";lastAt=0;$("result").textContent="لم يتم مسح رمز بعد.";$("format").textContent="النوع: —";$("copy").disabled=true;});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)stopCamera();});
+window.addEventListener("pagehide",stopCamera);
+</script>
+</body></html>
