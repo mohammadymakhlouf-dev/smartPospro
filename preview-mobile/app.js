@@ -214,7 +214,7 @@ function productForm(pid=""){
  field("cost","سعر التكلفة",(p.cost/100).toFixed(2),true,"number")+field("price","سعر البيع",(p.price/100).toFixed(2),true,"number")+
  field("stock","الكمية",p.stock,true,"integer")+field("minimum","حد تنبيه المخزون",p.minimum,true,"integer")+'</div>'+
  '<div class="barcode-entry"><label for="productBarcodeField">باركود المنتج<input id="productBarcodeField" name="barcode" autocomplete="off" inputmode="numeric" value="'+esc(p.barcode)+'" placeholder="امسح الباركود المطبوع أو أدخله يدويًا"></label>'+
- '<div class="barcode-tools"><button type="button" class="primary" id="scanExistingBarcode">📷 سكان الباركود بالكاميرا</button><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div>'+
+ '<div class="barcode-tools"><button type="button" class="primary" id="scanExistingBarcode">📷 فتح الكاميرا ومسح الباركود</button><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div>'+
  '<p class="muted small">إذا كان المنتج عليه باركود مطبوع، امسحه بالكاميرا فيُضاف رقمه هنا تلقائيًا. لا يتم حفظ المنتج إلا عند الضغط على حفظ المنتج.</p>'+
  '<label class="barcode-photo-label">📸 قراءة من صورة أو التقاط صورة للباركود<input type="file" id="productBarcodePhoto" accept="image/*" capture="environment"></label><div id="productCameraPanel" class="hidden camera-panel"><div id="productCameraReader"></div><p id="productCameraStatus" class="muted"></p><button type="button" id="stopProductCamera">إغلاق الكاميرا</button></div>'+
  '<div class="barcode-display"><svg id="barcodePreview" role="img" aria-label="باركود المنتج"></svg></div></div>'+
@@ -317,37 +317,56 @@ async function handleReadBarcode(raw,mode,status){
  if(app.page==="pos"){app.posSearch="";addCart(p.id);notify("تمت إضافة "+p.name+" من الكاميرا")}
  scanBusy=false;
 }
+function cameraMessage(error){
+ const message=String(error?.message||error?.name||error||"خطأ غير معروف");
+ if(/NotAllowed|Permission|denied|SecurityError/i.test(message))return "لم يتم السماح بالكاميرا. في Safari افتح إعدادات الموقع ثم اسمح بالكاميرا. ("+message+")";
+ if(/NotFound|DevicesNotFound/i.test(message))return "لم يتم العثور على كاميرا مناسبة. ("+message+")";
+ if(/NotReadable|TrackStart|in use/i.test(message))return "الكاميرا مستخدمة أو لا يمكن تشغيلها. أغلق تطبيقات التصوير الأخرى. ("+message+")";
+ return message;
+}
 async function openBarcodeCamera(mode="pos"){
  if(scannerStarting||barcodeScanner)return;
- if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("تحتاج الكاميرا إلى HTTPS أو التطبيق المثبّت.");
- if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر.");
  const {panel,readerId,status}=barcodeScanTarget(mode);
  if(!panel||!status)return;
- panel.classList.remove("hidden");scannerStarting=true;
- status.textContent="جارٍ تشغيل الكاميرا...";
+ panel.classList.remove("hidden");
+ if(!window.isSecureContext){status.textContent="فتح الكاميرا يحتاج HTTPS. افتح رابط الاختبار من Safari.";return}
+ if(!navigator.mediaDevices?.getUserMedia){status.textContent="هذا المتصفح أو إصدار iOS لا يتيح كاميرا الويب. استخدم التقاط صورة للباركود أو إدخاله يدويًا.";return}
+ if(typeof Html5Qrcode==="undefined"){status.textContent="ملف قراءة الباركود غير محمّل. افتح الصفحة بالإنترنت مرة واحدة.";return}
+ scannerStarting=true;
+ status.textContent="جارٍ تشغيل الكاميرا الخلفية... إذا فشل التشغيل يمكنك التقاط صورة بالزر الموجود أعلاه.";
  let instance=null;
  try{
-  // تعطيل الكاشف الأصلي عند دعمه: نعتمد محرك ZXing نفسه على iOS وAndroid.
-  // تقييد الصيغ يحسن سرعة قراءة باركود المنتجات على Safari.
+  const isApple=/iPhone|iPad|iPod/.test(navigator.userAgent)||navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;
   instance=new Html5Qrcode(readerId,{
-   verbose:false,formatsToSupport:BARCODE_FORMATS(),useBarCodeDetectorIfSupported:false
+   verbose:false,formatsToSupport:BARCODE_FORMATS(),
+   useBarCodeDetectorIfSupported:!isApple
   });
   barcodeScanner=instance;
-  await instance.start(
-   {facingMode:"environment"},
-   {fps:10,disableFlip:false,qrbox:(w,h)=>({
-    width:Math.min(Math.floor(w*.92),400),
-    height:Math.min(Math.floor(h*.70),260)
-   })},
-   decoded=>{handleReadBarcode(decoded,mode,status).catch(e=>notify("خطأ أثناء قراءة الباركود: "+e.message))},
-   ()=>{}
-  );
-  if(barcodeScanner===instance)status.textContent="وجّه الكاميرا إلى الرمز وحرّك الهاتف قليلًا حتى يصبح الباركود واضحًا. إذا لم يقرأ على الآيفون، جرّب زر «قراءة من صورة».";
- }catch(e){
+  const onRead=decoded=>{handleReadBarcode(decoded,mode,status).catch(e=>notify("خطأ أثناء معالجة الباركود: "+e.message))};
+  const config={
+   fps:isApple?6:10,
+   aspectRatio:1.333333333,
+   // A wide unobstructed video area is more reliable for product barcodes on Safari.
+   ...(isApple?{}:{qrbox:(w,h)=>({width:Math.min(Math.floor(w*.92),360),height:Math.min(Math.floor(h*.73),260)})})
+  };
+  try{
+   await instance.start({facingMode:"environment"},config,onRead,()=>{});
+  }catch(firstError){
+   // Some iPhones reject facingMode but accept a concrete camera device ID.
+   if(barcodeScanner!==instance)throw firstError;
+   try{
+    const cameras=await Html5Qrcode.getCameras();
+    const rear=cameras.find(c=>/back|rear|environment|خلف/i.test(c.label))||cameras[cameras.length-1];
+    if(!rear?.id)throw firstError;
+    await instance.start(rear.id,config,onRead,()=>{});
+   }catch(secondError){throw secondError}
+  }
+  if(barcodeScanner===instance)status.textContent="الكاميرا تعمل. ضع كامل خطوط الباركود داخل الصورة، بإضاءة جيدة وعلى مسافة مناسبة. إن لم تتم القراءة استخدم التصوير كبديل.";
+ }catch(error){
   barcodeScanner=null;
   try{if(instance)await instance.clear()}catch(_){}
-  status.textContent="تعذر تشغيل الكاميرا: "+(e?.message||e);
-  notify("تعذر تشغيل الكاميرا");
+  status.textContent="تعذر تشغيل الكاميرا: "+cameraMessage(error)+" — يمكنك استخدام التقاط صورة أو إدخال الباركود يدويًا.";
+  notify("لم تفتح الكاميرا. استخدم التقاط صورة أو تحقق من الأذونات.");
  }finally{scannerStarting=false}
 }
 async function readBarcodePhoto(mode,input){
