@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "SmartPOS Pro – تجربة الكاشير دون إنترنت",
+  "short_name": "SmartPOS اختبار",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fb",
+  "theme_color": "#111d35",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
