@@ -49,3 +49,14 @@ main{overflow-x:hidden}
 .mobile-pos .total{font-size:22px;white-space:nowrap}
 }
 @media print{.barcode-display{border:0}.barcode-display svg{max-width:100%}}
+
+/* Barcode camera inside the product form */
+.barcode-entry{margin:14px 0;padding:14px;border:1px solid var(--edge);border-radius:13px;background:#f9fbff;min-width:0}
+.barcode-entry label{font-size:14px}
+.barcode-entry input{font-size:16px}
+.barcode-entry .barcode-tools button{min-height:44px}
+.camera-panel{margin:12px 0;padding:12px;background:#fff;border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+#productCameraReader{max-width:480px;width:100%;margin:auto}
+#productCameraReader video{max-width:100%;border-radius:10px}
+#productCameraStatus{line-height:1.8}
+@media(max-width:480px){.barcode-entry{padding:10px}.barcode-entry .barcode-tools{display:grid;grid-template-columns:1fr}.barcode-entry .barcode-tools button{width:100%}}
