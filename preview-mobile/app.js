@@ -145,17 +145,24 @@ function drawProductBarcode(){
  catch(e){svg.replaceChildren();notify("صيغة الباركود غير مدعومة: "+e.message)}
 }
 function productForm(pid=""){
+ closeBarcodeCamera();
  const p=app.data.products.find(x=>x.id===pid)||{id:"",name:"",barcode:nextProductBarcode(),category:"",size:"",color:"",price:0,cost:0,stock:0,minimum:3};
  $("title").textContent=pid?"تعديل منتج":"إضافة منتج";
  $("content").innerHTML='<div class="card"><form id="formProduct"><input type="hidden" name="id" value="'+esc(p.id)+'"><div class="form-grid">'+
- field("name","اسم المنتج",p.name,true)+field("barcode","الباركود",p.barcode)+field("category","القسم",p.category)+field("size","المقاس / الحجم",p.size)+field("color","اللون / الصنف",p.color)+
+ field("name","اسم المنتج",p.name,true)+field("category","القسم",p.category)+field("size","المقاس / الحجم",p.size)+field("color","اللون / الصنف",p.color)+
  field("cost","سعر التكلفة",(p.cost/100).toFixed(2),true,"number")+field("price","سعر البيع",(p.price/100).toFixed(2),true,"number")+
  field("stock","الكمية",p.stock,true,"integer")+field("minimum","حد تنبيه المخزون",p.minimum,true,"integer")+'</div>'+
- '<div class="barcode-tools"><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div><div class="barcode-display"><svg id="barcodePreview" role="img" aria-label="باركود المنتج"></svg></div>'+
+ '<div class="barcode-entry"><label for="productBarcodeField">باركود المنتج<input id="productBarcodeField" name="barcode" autocomplete="off" inputmode="numeric" value="'+esc(p.barcode)+'" placeholder="امسح الباركود المطبوع أو أدخله يدويًا"></label>'+
+ '<div class="barcode-tools"><button type="button" class="primary" id="scanExistingBarcode">📷 سكان الباركود بالكاميرا</button><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div>'+
+ '<p class="muted small">إذا كان المنتج عليه باركود مطبوع، امسحه بالكاميرا فيُضاف رقمه هنا تلقائيًا. لا يتم حفظ المنتج إلا عند الضغط على حفظ المنتج.</p>'+
+ '<div id="productCameraPanel" class="hidden camera-panel"><div id="productCameraReader"></div><p id="productCameraStatus" class="muted"></p><button type="button" id="stopProductCamera">إغلاق الكاميرا</button></div>'+
+ '<div class="barcode-display"><svg id="barcodePreview" role="img" aria-label="باركود المنتج"></svg></div></div>'+
  '<div class="row"><button type="submit" class="primary">حفظ المنتج</button><button type="button" data-action="nav-products">إلغاء</button></div></form></div>';
  $("formProduct").onsubmit=saveProduct;
  $("generateBarcode").onclick=()=>{document.querySelector('#formProduct [name="barcode"]').value=nextProductBarcode();drawProductBarcode()};
  $("previewBarcodeBtn").onclick=drawProductBarcode;
+ $("scanExistingBarcode").onclick=()=>openBarcodeCamera("product");
+ $("stopProductCamera").onclick=closeBarcodeCamera;
  drawProductBarcode();
 }
 function printProductBarcode(pid){
@@ -203,30 +210,52 @@ async function closeBarcodeCamera(){
  const old=barcodeScanner;
  barcodeScanner=null;
  if(old){try{await old.stop()}catch(e){}try{await old.clear()}catch(e){}}
+ for(const id of ["cameraPanel","productCameraPanel"]){const panel=$(id);if(panel)panel.classList.add("hidden")}
 }
-async function openBarcodeCamera(){
+async function openBarcodeCamera(mode="pos"){
  if(scannerStarting||barcodeScanner)return;
- if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("الكاميرا تحتاج HTTPS. بعد تثبيت PWA يمكن استعمالها دون إنترنت.");
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("الكاميرا تحتاج تشغيل التطبيق عبر HTTPS أو PWA مثبت.");
  if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر");
- const panel=$("cameraPanel");if(!panel)return;
+ const isProduct=mode==="product";
+ const panel=$(isProduct?"productCameraPanel":"cameraPanel");
+ const readerId=isProduct?"productCameraReader":"cameraReader";
+ const status=$(isProduct?"productCameraStatus":"cameraStatus");
+ if(!panel||!status)return;
  panel.classList.remove("hidden");scannerStarting=true;
- const status=$("cameraStatus");status.textContent="جارٍ تشغيل الكاميرا...";
+ status.textContent="جارٍ تشغيل الكاميرا...";
  let instance=null;
  try{
-  instance=new Html5Qrcode("cameraReader",{verbose:false});
+  instance=new Html5Qrcode(readerId,{verbose:false});
   barcodeScanner=instance;
   await instance.start({facingMode:"environment"},{fps:10,qrbox:(w,h)=>({width:Math.max(130,Math.min(290,Math.floor(w*.86))),height:Math.max(110,Math.min(190,Math.floor(h*.65)))})},async decoded=>{
    if(Date.now()-scanStamp<1500)return;
-   const p=app.data.products.find(x=>x.barcode&&x.barcode===decoded);
-   if(!p){status.textContent="لم يُعثر على منتج بالرمز: "+decoded;scanStamp=Date.now();return}
+   const code=String(decoded||"").trim();
+   if(!code)return;
    scanStamp=Date.now();
+   if(isProduct){
+    const field=$("productBarcodeField");
+    if(!field)return closeBarcodeCamera();
+    const currentId=document.querySelector('#formProduct [name="id"]')?.value||"";
+    if(app.data.products.some(p=>p.barcode===code&&p.id!==currentId)){
+     status.textContent="هذا الباركود مسجل مسبقًا لمنتج آخر. جرّب رمزًا مختلفًا.";
+     notify("الباركود مستخدم لمنتج آخر");
+     return;
+    }
+    field.value=code;
+    await closeBarcodeCamera();
+    drawProductBarcode();
+    notify("تمت قراءة الباركود ووضعه في حقل المنتج. أكمل البيانات ثم اضغط حفظ.");
+    return;
+   }
+   const p=app.data.products.find(x=>x.barcode&&x.barcode===code);
+   if(!p){status.textContent="لم يُعثر على منتج بالرمز: "+code;return}
    await closeBarcodeCamera();
    if(app.page!=="pos")return;
    app.posSearch="";
    addCart(p.id);
    notify("تم مسح باركود "+p.name);
   },()=>{});
-  if(barcodeScanner===instance)status.textContent="وجّه الكاميرا إلى QR أو الباركود";
+  if(barcodeScanner===instance)status.textContent=isProduct?"وجّه الكاميرا إلى الباركود المطبوع على البضاعة":"وجّه الكاميرا إلى QR أو الباركود";
  }catch(e){
   barcodeScanner=null;
   try{if(instance)await instance.clear()}catch(_){}
