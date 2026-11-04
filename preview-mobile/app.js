@@ -163,7 +163,7 @@ function productForm(pid=""){
  '<div class="barcode-entry"><label for="productBarcodeField">باركود المنتج<input id="productBarcodeField" name="barcode" autocomplete="off" inputmode="numeric" value="'+esc(p.barcode)+'" placeholder="امسح الباركود المطبوع أو أدخله يدويًا"></label>'+
  '<div class="barcode-tools"><button type="button" class="primary" id="scanExistingBarcode">📷 سكان الباركود بالكاميرا</button><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div>'+
  '<p class="muted small">إذا كان المنتج عليه باركود مطبوع، امسحه بالكاميرا فيُضاف رقمه هنا تلقائيًا. لا يتم حفظ المنتج إلا عند الضغط على حفظ المنتج.</p>'+
- '<div id="productCameraPanel" class="hidden camera-panel"><div id="productCameraReader"></div><p id="productCameraStatus" class="muted"></p><button type="button" id="stopProductCamera">إغلاق الكاميرا</button></div>'+
+ '<label class="barcode-photo-label">📸 قراءة من صورة أو التقاط صورة للباركود<input type="file" id="productBarcodePhoto" accept="image/*" capture="environment"></label><div id="productCameraPanel" class="hidden camera-panel"><div id="productCameraReader"></div><p id="productCameraStatus" class="muted"></p><button type="button" id="stopProductCamera">إغلاق الكاميرا</button></div>'+
  '<div class="barcode-display"><svg id="barcodePreview" role="img" aria-label="باركود المنتج"></svg></div></div>'+
  '<div class="row"><button type="submit" class="primary">حفظ المنتج</button><button type="button" data-action="nav-products">إلغاء</button></div></form></div>';
  $("formProduct").onsubmit=saveProduct;
@@ -171,6 +171,7 @@ function productForm(pid=""){
  $("previewBarcodeBtn").onclick=drawProductBarcode;
  $("scanExistingBarcode").onclick=()=>openBarcodeCamera("product");
  $("stopProductCamera").onclick=closeBarcodeCamera;
+ $("productBarcodePhoto").onchange=e=>readBarcodePhoto("product",e.target);
  drawProductBarcode();
 }
 function printProductBarcode(pid){
@@ -213,70 +214,117 @@ function products(){
  $("productSearch").addEventListener("input",e=>{app.productSearch=e.target.value;const i=e.target.selectionStart;products();$("productSearch").focus();$("productSearch").setSelectionRange(i,i)});
 }
 function cartTotal(){return app.cart.reduce((a,x)=>a+x.qty*x.price,0)}
-let barcodeScanner=null,scannerStarting=false,scanStamp=0;
+let barcodeScanner=null,scannerStarting=false,scanStamp=0,scanBusy=false;
+const BARCODE_FORMATS=()=>{
+ const f=Html5QrcodeSupportedFormats;
+ return [f.QR_CODE,f.CODE_128,f.EAN_13,f.EAN_8,f.UPC_A,f.UPC_E,f.CODE_39,f.CODE_93,f.ITF].filter(x=>x!==undefined);
+};
+function barcodeScanTarget(mode){
+ const product=mode==="product";
+ return {
+  panel:$(product?"productCameraPanel":"cameraPanel"),
+  readerId:product?"productCameraReader":"cameraReader",
+  status:$(product?"productCameraStatus":"cameraStatus")
+ };
+}
 async function closeBarcodeCamera(){
- const old=barcodeScanner;
- barcodeScanner=null;
+ const old=barcodeScanner;barcodeScanner=null;
  if(old){try{await old.stop()}catch(e){}try{await old.clear()}catch(e){}}
  for(const id of ["cameraPanel","productCameraPanel"]){const panel=$(id);if(panel)panel.classList.add("hidden")}
 }
+async function handleReadBarcode(raw,mode,status){
+ const code=String(raw||"").trim();
+ if(!code||scanBusy||Date.now()-scanStamp<1100)return;
+ scanStamp=Date.now();
+ if(mode==="product"){
+  const field=$("productBarcodeField");
+  if(!field)return;
+  const currentId=document.querySelector('#formProduct [name="id"]')?.value||"";
+  if(app.data.products.some(p=>p.barcode===code&&p.id!==currentId)){
+   if(status)status.textContent="هذا الباركود مسجّل لمنتج آخر: "+code;
+   notify("هذا الباركود مستخدم لمنتج آخر");
+   return;
+  }
+  scanBusy=true;
+  field.value=code;
+  await closeBarcodeCamera();
+  drawProductBarcode();
+  notify("تمت قراءة الباركود: "+code+" — أكمل بيانات المنتج ثم احفظ.");
+  scanBusy=false;
+  return;
+ }
+ const p=app.data.products.find(x=>x.barcode&&x.barcode===code);
+ if(!p){
+  if(status)status.textContent="تمت قراءة الرمز: "+code+"، لكنه غير مسجّل ضمن المنتجات.";
+  notify("باركود غير مسجّل: "+code);
+  return;
+ }
+ scanBusy=true;
+ await closeBarcodeCamera();
+ if(app.page==="pos"){app.posSearch="";addCart(p.id);notify("تمت إضافة "+p.name+" من الكاميرا")}
+ scanBusy=false;
+}
 async function openBarcodeCamera(mode="pos"){
  if(scannerStarting||barcodeScanner)return;
- if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("الكاميرا تحتاج تشغيل التطبيق عبر HTTPS أو PWA مثبت.");
- if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر");
- const isProduct=mode==="product";
- const panel=$(isProduct?"productCameraPanel":"cameraPanel");
- const readerId=isProduct?"productCameraReader":"cameraReader";
- const status=$(isProduct?"productCameraStatus":"cameraStatus");
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("تحتاج الكاميرا إلى HTTPS أو التطبيق المثبّت.");
+ if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر.");
+ const {panel,readerId,status}=barcodeScanTarget(mode);
  if(!panel||!status)return;
  panel.classList.remove("hidden");scannerStarting=true;
  status.textContent="جارٍ تشغيل الكاميرا...";
  let instance=null;
  try{
-  instance=new Html5Qrcode(readerId,{verbose:false});
+  // تعطيل الكاشف الأصلي عند دعمه: نعتمد محرك ZXing نفسه على iOS وAndroid.
+  // تقييد الصيغ يحسن سرعة قراءة باركود المنتجات على Safari.
+  instance=new Html5Qrcode(readerId,{
+   verbose:false,formatsToSupport:BARCODE_FORMATS(),useBarCodeDetectorIfSupported:false
+  });
   barcodeScanner=instance;
-  await instance.start({facingMode:"environment"},{fps:10,qrbox:(w,h)=>({width:Math.max(130,Math.min(290,Math.floor(w*.86))),height:Math.max(110,Math.min(190,Math.floor(h*.65)))})},async decoded=>{
-   if(Date.now()-scanStamp<1500)return;
-   const code=String(decoded||"").trim();
-   if(!code)return;
-   scanStamp=Date.now();
-   if(isProduct){
-    const field=$("productBarcodeField");
-    if(!field)return closeBarcodeCamera();
-    const currentId=document.querySelector('#formProduct [name="id"]')?.value||"";
-    if(app.data.products.some(p=>p.barcode===code&&p.id!==currentId)){
-     status.textContent="هذا الباركود مسجل مسبقًا لمنتج آخر. جرّب رمزًا مختلفًا.";
-     notify("الباركود مستخدم لمنتج آخر");
-     return;
-    }
-    field.value=code;
-    await closeBarcodeCamera();
-    drawProductBarcode();
-    notify("تمت قراءة الباركود ووضعه في حقل المنتج. أكمل البيانات ثم اضغط حفظ.");
-    return;
-   }
-   const p=app.data.products.find(x=>x.barcode&&x.barcode===code);
-   if(!p){status.textContent="لم يُعثر على منتج بالرمز: "+code;return}
-   await closeBarcodeCamera();
-   if(app.page!=="pos")return;
-   app.posSearch="";
-   addCart(p.id);
-   notify("تم مسح باركود "+p.name);
-  },()=>{});
-  if(barcodeScanner===instance)status.textContent=isProduct?"وجّه الكاميرا إلى الباركود المطبوع على البضاعة":"وجّه الكاميرا إلى QR أو الباركود";
+  await instance.start(
+   {facingMode:"environment"},
+   {fps:10,disableFlip:false,qrbox:(w,h)=>({
+    width:Math.min(Math.floor(w*.92),400),
+    height:Math.min(Math.floor(h*.70),260)
+   })},
+   decoded=>{handleReadBarcode(decoded,mode,status).catch(e=>notify("خطأ أثناء قراءة الباركود: "+e.message))},
+   ()=>{}
+  );
+  if(barcodeScanner===instance)status.textContent="وجّه الكاميرا إلى الرمز وحرّك الهاتف قليلًا حتى يصبح الباركود واضحًا. إذا لم يقرأ على الآيفون، جرّب زر «قراءة من صورة».";
  }catch(e){
   barcodeScanner=null;
   try{if(instance)await instance.clear()}catch(_){}
-  if(status)status.textContent="تعذر تشغيل الكاميرا: "+(e.message||e);
+  status.textContent="تعذر تشغيل الكاميرا: "+(e?.message||e);
   notify("تعذر تشغيل الكاميرا");
  }finally{scannerStarting=false}
+}
+async function readBarcodePhoto(mode,input){
+ const file=input?.files?.[0];
+ if(!file)return;
+ if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر.");
+ const {readerId,status,panel}=barcodeScanTarget(mode);
+ try{
+  await closeBarcodeCamera();
+  if(panel)panel.classList.remove("hidden");
+  if(status)status.textContent="جارٍ قراءة الباركود من الصورة...";
+  // مسح صورة ثابتة بديل مفيد على Safari عند تعذر التعرف على الفيديو.
+  const reader=new Html5Qrcode(readerId,{
+   verbose:false,formatsToSupport:BARCODE_FORMATS(),useBarCodeDetectorIfSupported:false
+  });
+  try{
+   const value=await reader.scanFile(file,true);
+   await handleReadBarcode(value,mode,status);
+  }finally{try{await reader.clear()}catch(e){}}
+ }catch(e){
+  if(status)status.textContent="تعذرت قراءة الصورة: "+(e?.message||e)+". حاول تصوير الباركود عن قرب وبإضاءة جيدة.";
+  notify("لم أتمكن من قراءة الرمز من الصورة");
+ }finally{input.value=""}
 }
 function pos(){
  closeBarcodeCamera();
  const q=app.posSearch.toLowerCase().trim();
  const list=app.data.products.filter(p=>[p.name,p.barcode,p.category,p.size,p.color].join(" ").toLowerCase().includes(q));
  const subtotal=cartTotal();
- $("content").innerHTML='<div class="pos mobile-pos"><section class="pos-products"><div class="card pos-search"><h2>المنتجات</h2><input id="scan" placeholder="ابحث بالاسم أو امسح باركود المنتج" autocomplete="off" value="'+esc(app.posSearch)+'"><div class="scan-actions"><button class="primary" id="startCamera" type="button">📷 مسح بالكاميرا</button><button type="button" id="focusScan">قارئ باركود خارجي</button></div><p class="muted small">يعمل قارئ USB/Bluetooth بالباركود ثم Enter. الكاميرا تدعم QR والباركود.</p><div id="cameraPanel" class="hidden"><div id="cameraReader"></div><p id="cameraStatus" class="muted"></p><button id="stopCamera" type="button">إغلاق الكاميرا</button></div></div><div class="product-grid">'+
+ $("content").innerHTML='<div class="pos mobile-pos"><section class="pos-products"><div class="card pos-search"><h2>المنتجات</h2><input id="scan" placeholder="ابحث بالاسم أو امسح باركود المنتج" autocomplete="off" value="'+esc(app.posSearch)+'"><div class="scan-actions"><button class="primary" id="startCamera" type="button">📷 مسح بالكاميرا</button><button type="button" id="focusScan">قارئ باركود خارجي</button></div><p class="muted small">يعمل قارئ USB/Bluetooth بالباركود ثم Enter. الكاميرا تدعم QR والباركود.</p><label class="barcode-photo-label">📸 قراءة الباركود من صورة<input id="posBarcodePhoto" type="file" accept="image/*" capture="environment"></label><div id="cameraPanel" class="hidden"><div id="cameraReader"></div><p id="cameraStatus" class="muted"></p><button id="stopCamera" type="button">إغلاق الكاميرا</button></div></div><div class="product-grid">'+
  list.map(p=>'<button class="product-tile" data-action="add-cart" data-id="'+p.id+'" '+(p.stock<=0?"disabled":"")+'><b>'+esc(p.name)+'</b><span class="muted">'+esc([p.size,p.color].filter(Boolean).join(" / "))+'</span><p class="muted">المخزون: '+p.stock+'</p><div class="price">'+fmt(p.price)+'</div></button>').join("")+
  '</div></section><section class="card pos-checkout"><h2>سلة المبيعات <span class="cart-counter">'+app.cart.reduce((s,x)=>s+x.qty,0)+'</span></h2><div class="cart-mobile">'+
  (app.cart.length?app.cart.map((x,i)=>'<div class="cart-line"><div class="cart-item-heading"><b>'+esc(x.name)+'</b><button class="danger btn-sm" data-action="drop-cart" data-index="'+i+'" aria-label="حذف من السلة">حذف</button></div><div class="cart-line-bottom"><label>الكمية<input aria-label="الكمية" data-qty="'+i+'" type="number" min="1" step="1" inputmode="numeric" value="'+x.qty+'"></label><div class="cart-item-price">'+fmt(x.price*x.qty)+'</div></div></div>').join(""):'<p class="empty">السلة فارغة — اختر منتجًا أو امسح الباركود</p>')+
@@ -288,6 +336,7 @@ function pos(){
  '<div class="checkout-actions"><button class="primary" data-action="checkout" '+(!app.cart.length?"disabled":"")+'>إتمام البيع • '+fmt(Math.max(0,subtotal-app.discount))+'</button><button data-action="clear-cart">تفريغ السلة</button></div></section></div>';
  $("startCamera").onclick=()=>openBarcodeCamera("pos");
  $("stopCamera").onclick=closeBarcodeCamera;
+ $("posBarcodePhoto").onchange=e=>readBarcodePhoto("pos",e.target);
  $("focusScan").onclick=()=>{$("scan").focus();notify("امسح الباركود بالقارئ الخارجي ثم Enter")};
  $("scan").oninput=e=>{app.posSearch=e.target.value;const i=e.target.selectionStart;pos();$("scan").focus();$("scan").setSelectionRange(i,i)};
  $("scan").onkeydown=e=>{
