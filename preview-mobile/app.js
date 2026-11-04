@@ -10,7 +10,8 @@ const day=s=>(s||"").slice(0,10);
 const when=s=>new Date(s).toLocaleString("ar",{dateStyle:"short",timeStyle:"short"});
 const clone=x=>structuredClone(x);
 let app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
-let backupTimer=null,processing=false,toastTimer=null;
+let backupTimer=null,processing=false,toastTimer=null,backupRunning=false;
+let backupSessionStart=Date.now();
 let saveQueue=Promise.resolve();
 
 function notify(message){
@@ -55,10 +56,61 @@ async function commit(next){
  app.data=next;
  scheduleBackup();
 }
+const BACKUP_INTERVALS=[5,15,30,60,180,360,720,1440];
+function backupKey(){
+ return "smartpos-mobile-preview-auto-backup-"+(app.user?.sub||"anonymous");
+}
+function backupPrefs(){
+ let prefs=null;
+ try{prefs=JSON.parse(localStorage.getItem(backupKey())||"null")}catch(e){}
+ return {
+  enabled:prefs?.enabled!==false,
+  minutes:BACKUP_INTERVALS.includes(Number(prefs?.minutes))?Number(prefs.minutes):30,
+  lastSuccess:Number(prefs?.lastSuccess)||0,
+  lastDataUpdatedAt:String(prefs?.lastDataUpdatedAt||""),
+  lastAttempt:Number(prefs?.lastAttempt)||0,
+  lastError:String(prefs?.lastError||"")
+ };
+}
+function saveBackupPrefs(prefs){
+ localStorage.setItem(backupKey(),JSON.stringify(prefs));
+}
+function backupStatusText(){
+ const p=backupPrefs();
+ if(!p.enabled)return "النسخ التلقائي متوقف";
+ if(!navigator.onLine)return "بانتظار عودة الإنترنت";
+ if(!DriveAuth.connected())return "يلزم اتصال Google Drive أو تجديد الجلسة";
+ if(!app.data)return "بانتظار بيانات المنشأة";
+ if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return "البيانات الحالية محفوظة على Google Drive";
+ return "سيتم النسخ بعد انتهاء المدة المحددة أثناء فتح التطبيق";
+}
 function scheduleBackup(){
- if(!DriveAuth.connected())return;
- clearTimeout(backupTimer);
- backupTimer=setTimeout(()=>cloudBackup(false),60000);
+ clearTimeout(backupTimer);backupTimer=null;
+ if(!app.user||!app.data)return;
+ const p=backupPrefs();
+ if(!p.enabled||!navigator.onLine||!DriveAuth.connected())return;
+ if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return;
+ const interval=p.minutes*60000;
+ const start=p.lastSuccess||backupSessionStart;
+ const due=Math.max(start+interval,(p.lastAttempt||0)+60000);
+ const wait=Math.max(1000,due-Date.now());
+ backupTimer=setTimeout(async()=>{
+  backupTimer=null;
+  if(document.visibilityState==="hidden"){return;}
+  if(!app.user||!app.data||!navigator.onLine||!DriveAuth.connected())return;
+  await cloudBackup(false);
+ },Math.min(wait,2147483647));
+}
+function updateBackupSettings(){
+ if(!app.user)return;
+ const prefs=backupPrefs();
+ prefs.enabled=$("autoBackupEnabled")?.checked??prefs.enabled;
+ prefs.minutes=Number($("autoBackupMinutes")?.value)||30;
+ if(!BACKUP_INTERVALS.includes(prefs.minutes))prefs.minutes=30;
+ saveBackupPrefs(prefs);
+ scheduleBackup();
+ if(app.page==="settings")settings();
+ notify(prefs.enabled?"تم تفعيل النسخ التلقائي كل "+prefs.minutes+" دقيقة أثناء فتح التطبيق":"تم إيقاف النسخ التلقائي");
 }
 function localStatus(){
  $("online").textContent=navigator.onLine?"متصل • حفظ محلي":"غير متصل • حفظ محلي";
@@ -70,12 +122,13 @@ function setViews(view){
 }
 async function enter(user){
  app.user=user;
+ backupSessionStart=Date.now();
  localStorage.setItem("smartpos-mobile-preview-last-user",JSON.stringify(user));
  app.data=await readLocal(user.sub);
  app.cart=[];app.discount=0;app.customer="";app.payment="cash";
  if(!app.data){setViews("setup");return}
  setViews("shell");$("sideName").textContent=app.data.business;
- goto("dashboard");
+ goto("dashboard");scheduleBackup();
 }
 async function login(){
  $("btnGoogle").disabled=true;
@@ -106,7 +159,7 @@ async function setup(e){
 function logout(){
  closeBarcodeCamera();
  if(!confirm("تسجيل الخروج؟ ستبقى البيانات المحلية محفوظة على هذا الجهاز."))return;
- DriveAuth.logout();clearTimeout(backupTimer);
+ DriveAuth.logout();clearTimeout(backupTimer);backupTimer=null;
  app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
  setViews("signin");notify("تم تسجيل الخروج");
 }
@@ -414,13 +467,24 @@ function reports(){
  '<p class="muted">الربح تقديري قبل المصاريف والضرائب. يتم احتساب تكلفة البضاعة وفق السعر المحفوظ وقت البيع.</p>';
 }
 function settings(){
- const cloud=DriveAuth.connected();
+ const cloud=DriveAuth.connected(),p=backupPrefs();
+ const intervals=[[5,"كل 5 دقائق"],[15,"كل 15 دقيقة"],[30,"كل 30 دقيقة"],[60,"كل ساعة"],[180,"كل 3 ساعات"],[360,"كل 6 ساعات"],[720,"كل 12 ساعة"],[1440,"كل 24 ساعة"]];
+ const last=p.lastSuccess?when(new Date(p.lastSuccess).toISOString()):"لم تكتمل أي نسخة بعد";
  $("content").innerHTML='<div class="card"><h2>المنشأة والحساب</h2><p><b>المحل:</b> '+esc(app.data.business)+'</p><p><b>حساب Google:</b> '+esc(app.user.email)+'</p><p><b>العملة:</b> '+esc(app.data.currency)+'</p><p><b>نوع النشاط:</b> '+esc(app.data.activity)+'</p><button data-action="logout">تسجيل الخروج</button></div>'+
  '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">النسخ تحفظ داخل مساحة التطبيق المخفية في Drive الخاص بهذا الحساب. ليست مزامنة آنية بين أجهزة مختلفة.</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
- '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
- '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. النسخ الدورية تستبدل ملف النسخ السحابي الحالي؛ لا تبيع على جهازين مختلفين ثم ترفع النسخ بالتناوب.</p></div>'+
+ '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
+ '<hr><h2>النسخ الاحتياطي التلقائي</h2>'+
+ '<label class="backup-toggle"><input id="autoBackupEnabled" type="checkbox" '+(p.enabled?"checked":"")+'> تفعيل النسخ الاحتياطي التلقائي إلى Google Drive</label>'+
+ '<label>المدة الزمنية بين النسخ<select id="autoBackupMinutes" '+(!p.enabled?"disabled":"")+'>'+intervals.map(([m,label])=>'<option value="'+m+'" '+(p.minutes===m?"selected":"")+'>'+label+'</option>').join("")+'</select></label>'+
+ '<p class="muted"><b>حالة النسخ:</b> '+esc(backupStatusText())+'</p>'+
+ '<p class="muted"><b>آخر نسخة سحابية ناجحة من هذا الجهاز:</b> '+esc(last)+'</p>'+
+ (p.lastError?'<p class="muted"><b>آخر خطأ:</b> '+esc(p.lastError)+'</p>':"")+
+ '<p class="notice">يعمل النسخ التلقائي فقط عندما يكون التطبيق مفتوحًا ويعمل، والإنترنت متوفرًا، وجلسة Google Drive صالحة. لا يمكن ضمان النسخ عند إغلاق التطبيق أو قفل الهاتف. يُرفع ملف جديد عند وجود تغييرات؛ والنسخ التلقائي يستبدل النسخة السحابية السابقة، ولا يحتفظ بإصدارات متعددة.</p>'+
+ '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. لا تستخدم النسخ التلقائي على جهازين لنفس المحل، لأنها ليست مزامنة آنية.</p></div>'+
  '<div class="card"><h2>نسخة احتياطية محلية</h2><div class="actions"><button data-action="export">تحميل نسخة JSON</button><label style="margin:0">اختيار نسخة للاستعادة<input type="file" id="importFile" accept="application/json,.json"></label><button data-action="import">استعادة النسخة</button></div><p class="muted">ملف JSON غير مشفر. احفظه في مكان آمن ولا تشاركه.</p></div>';
+ $("autoBackupEnabled").onchange=updateBackupSettings;
+ $("autoBackupMinutes").onchange=updateBackupSettings;
 }
 function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerEmail:app.user.email,exportedAt:new Date().toISOString(),data:clone(app.data)}}
 function validBackup(backup){
@@ -449,14 +513,36 @@ async function importJSON(){
  }catch(e){notify("فشلت الاستعادة: "+e.message)}
 }
 async function cloudBackup(manual=true){
+ if(backupRunning){if(manual)notify("هناك عملية نسخ احتياطي جارية");return}
+ if(!app.user||!app.data)return;
  if(!DriveAuth.connected()){if(manual)notify("سجّل الدخول بحساب Google أولًا");return}
  if(!navigator.onLine){if(manual)notify("الإنترنت غير متاح");return}
+ const owner=app.user.sub,preference=backupPrefs();
+ if(!manual&&(!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
+ backupRunning=true;
+ preference.lastAttempt=Date.now();
+ saveBackupPrefs(preference);
  try{
   await saveQueue;
-  await DriveAuth.upload(buildSnapshot());
+  const snapshot=buildSnapshot();
+  await DriveAuth.upload(snapshot);
+  if(app.user?.sub===owner){
+   const p=backupPrefs();
+   p.lastSuccess=Date.now();p.lastDataUpdatedAt=snapshot.data.updatedAt;
+   p.lastError="";
+   saveBackupPrefs(p);
+  }
   if(manual)notify("تم رفع النسخة إلى Google Drive بنجاح");
+ }catch(e){
+  if(app.user?.sub===owner){
+   const p=backupPrefs();p.lastError=String(e.message||e).slice(0,180);saveBackupPrefs(p);
+  }
+  notify("فشل النسخ إلى Drive: "+e.message);
+ }finally{
+  backupRunning=false;
+  scheduleBackup();
   if(app.page==="settings")settings();
- }catch(e){notify("فشل النسخ إلى Drive: "+e.message)}
+ }
 }
 async function cloudRestore(){
  if(!DriveAuth.connected())return notify("سجّل الدخول بحساب Google أولًا");
@@ -473,7 +559,7 @@ async function connectDrive(){
   const user=await DriveAuth.authenticate();
   if(user.sub!==app.user.sub){DriveAuth.logout();throw Error("حساب Google مختلف عن حساب صاحب المحل. سجّل الخروج ثم افتح حساب المحل المناسب.")}
   app.user={...user};localStorage.setItem("smartpos-mobile-preview-last-user",JSON.stringify(user));
-  notify("تم الاتصال بحساب "+user.email);settings();
+  scheduleBackup();notify("تم الاتصال بحساب "+user.email);settings();
  }catch(e){notify(e.message)}
 }
 async function perform(action,target){
@@ -501,10 +587,10 @@ function boot(){
  $("content").onclick=e=>{const btn=e.target.closest("[data-action]");if(btn)perform(btn.dataset.action,btn)};
  const cached=localStorage.getItem("smartpos-mobile-preview-last-user");
  $("offlineArea").classList.toggle("hidden",!cached);
- window.addEventListener("online",()=>{localStatus();if(DriveAuth.connected())scheduleBackup()});
- window.addEventListener("offline",localStatus);
+ window.addEventListener("online",()=>{localStatus();scheduleBackup()});
+ window.addEventListener("offline",()=>{localStatus();clearTimeout(backupTimer);backupTimer=null});
  localStatus();setViews("signin");
- document.addEventListener("visibilitychange",()=>{if(document.hidden)closeBarcodeCamera()});
+ document.addEventListener("visibilitychange",()=>{if(document.hidden)closeBarcodeCamera();else scheduleBackup()});
  if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(e=>console.warn("PWA:",e));
 }
 boot();
