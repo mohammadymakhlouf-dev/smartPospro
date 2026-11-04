@@ -1,4 +1,4 @@
-const CACHE="smartpos-mobile-preview-v3";
+const CACHE="smartpos-mobile-preview-v4";
 const ASSETS=["./","./index.html","./styles.css","./app.js","./drive.js","./icon.svg","./manifest.webmanifest","./vendor/JsBarcode.all.min.js","./vendor/html5-qrcode.min.js"];
 self.addEventListener("install",e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener("activate",e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(x=>x.startsWith("smartpos-mobile-preview-")&&x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));
