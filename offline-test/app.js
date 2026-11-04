@@ -22,7 +22,7 @@ function createData(){
 }
 function openDB(){
  return new Promise((resolve,reject)=>{
-  const r=indexedDB.open("smartpos-pro-accounts",1);
+  const r=indexedDB.open("smartpos-offline-lab-accounts",1);
   r.onupgradeneeded=()=>r.result.createObjectStore("accounts",{keyPath:"key"});
   r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);
  });
