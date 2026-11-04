@@ -1,4 +1,5 @@
 "use strict";
+// Production safeguards: keep original IndexedDB and Google Drive backup namespace.
 /* SmartPOS Pro v1 - offline-first single-device demo.
    Drive stores backups, not a shared live database. */
 const $=id=>document.getElementById(id);
@@ -10,7 +11,8 @@ const day=s=>(s||"").slice(0,10);
 const when=s=>new Date(s).toLocaleString("ar",{dateStyle:"short",timeStyle:"short"});
 const clone=x=>structuredClone(x);
 let app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
-let backupTimer=null,processing=false,toastTimer=null;
+let backupTimer=null,processing=false,toastTimer=null,backupRunning=false;
+let backupSessionStart=Date.now();
 let saveQueue=Promise.resolve();
 
 function notify(message){
@@ -55,10 +57,61 @@ async function commit(next){
  app.data=next;
  scheduleBackup();
 }
+const BACKUP_INTERVALS=[5,15,30,60,180,360,720,1440];
+function backupKey(){
+ return "smartpos-default-auto-backup-"+(app.user?.sub||"anonymous");
+}
+function backupPrefs(){
+ let prefs=null;
+ try{prefs=JSON.parse(localStorage.getItem(backupKey())||"null")}catch(e){}
+ return {
+  enabled:prefs?.enabled!==false,
+  minutes:BACKUP_INTERVALS.includes(Number(prefs?.minutes))?Number(prefs.minutes):30,
+  lastSuccess:Number(prefs?.lastSuccess)||0,
+  lastDataUpdatedAt:String(prefs?.lastDataUpdatedAt||""),
+  lastAttempt:Number(prefs?.lastAttempt)||0,
+  lastError:String(prefs?.lastError||"")
+ };
+}
+function saveBackupPrefs(prefs){
+ localStorage.setItem(backupKey(),JSON.stringify(prefs));
+}
+function backupStatusText(){
+ const p=backupPrefs();
+ if(!p.enabled)return "النسخ التلقائي متوقف";
+ if(!navigator.onLine)return "بانتظار عودة الإنترنت";
+ if(!DriveAuth.connected())return "يلزم اتصال Google Drive أو تجديد الجلسة";
+ if(!app.data)return "بانتظار بيانات المنشأة";
+ if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return "البيانات الحالية محفوظة على Google Drive";
+ return "سيتم النسخ بعد انتهاء المدة المحددة أثناء فتح التطبيق";
+}
 function scheduleBackup(){
- if(!DriveAuth.connected())return;
- clearTimeout(backupTimer);
- backupTimer=setTimeout(()=>cloudBackup(false),60000);
+ clearTimeout(backupTimer);backupTimer=null;
+ if(!app.user||!app.data)return;
+ const p=backupPrefs();
+ if(!p.enabled||!navigator.onLine||!DriveAuth.connected())return;
+ if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return;
+ const interval=p.minutes*60000;
+ const start=p.lastSuccess||backupSessionStart;
+ const due=Math.max(start+interval,(p.lastAttempt||0)+60000);
+ const wait=Math.max(1000,due-Date.now());
+ backupTimer=setTimeout(async()=>{
+  backupTimer=null;
+  if(document.visibilityState==="hidden"){return;}
+  if(!app.user||!app.data||!navigator.onLine||!DriveAuth.connected())return;
+  await cloudBackup(false);
+ },Math.min(wait,2147483647));
+}
+function updateBackupSettings(){
+ if(!app.user)return;
+ const prefs=backupPrefs();
+ prefs.enabled=$("autoBackupEnabled")?.checked??prefs.enabled;
+ prefs.minutes=Number($("autoBackupMinutes")?.value)||30;
+ if(!BACKUP_INTERVALS.includes(prefs.minutes))prefs.minutes=30;
+ saveBackupPrefs(prefs);
+ scheduleBackup();
+ if(app.page==="settings")settings();
+ notify(prefs.enabled?"تم تفعيل النسخ التلقائي كل "+prefs.minutes+" دقيقة أثناء فتح التطبيق":"تم إيقاف النسخ التلقائي");
 }
 function localStatus(){
  $("online").textContent=navigator.onLine?"متصل • حفظ محلي":"غير متصل • حفظ محلي";
@@ -70,12 +123,13 @@ function setViews(view){
 }
 async function enter(user){
  app.user=user;
+ backupSessionStart=Date.now();
  localStorage.setItem("smartpos-last-user",JSON.stringify(user));
  app.data=await readLocal(user.sub);
  app.cart=[];app.discount=0;app.customer="";app.payment="cash";
  if(!app.data){setViews("setup");return}
  setViews("shell");$("sideName").textContent=app.data.business;
- goto("dashboard");
+ goto("dashboard");scheduleBackup();
 }
 async function login(){
  $("btnGoogle").disabled=true;
@@ -104,19 +158,29 @@ async function setup(e){
  catch(e){notify("فشل الحفظ: "+e.message)}
 }
 function logout(){
+ closeBarcodeCamera();
  if(!confirm("تسجيل الخروج؟ ستبقى البيانات المحلية محفوظة على هذا الجهاز."))return;
- DriveAuth.logout();clearTimeout(backupTimer);
+ DriveAuth.logout();clearTimeout(backupTimer);backupTimer=null;
  app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
  setViews("signin");notify("تم تسجيل الخروج");
 }
 function goto(page){
- app.page=page;
+ if(page!=="pos")closeBarcodeCamera();
+ if(!app.data){notify("لم يتم تحميل بيانات المحل. أعد تسجيل الدخول.");return;}
  const titles={dashboard:"لوحة التحكم",pos:"نقطة البيع",products:"المنتجات والمخزون",sales:"سجل الفواتير",reports:"التقارير",settings:"الإعدادات وGoogle Drive"};
+ const map={dashboard:dashboard,pos:pos,products:products,sales:sales,reports:reports,settings:settings};
+ app.page=page;
  $("title").textContent=titles[page]||"SmartPOS Pro";
  $("subtitle").textContent=app.data.business+" • "+(app.user.email||"");
  document.querySelectorAll("#menu button").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
- const map={dashboard:dashboard,pos:pos,products:products,sales:sales,reports:reports,settings:settings};
- (map[page]||dashboard)();
+ try{(map[page]||dashboard)()}
+ catch(error){
+  console.error("SmartPOS screen error:",page,error);
+  $("content").innerHTML='<div class="card"><h2>تعذر فتح الشاشة</h2><p class="notice" id="screenErrorText"></p><button class="primary" id="retryScreen">إعادة المحاولة</button></div>';
+  $("screenErrorText").textContent=error?.message||"حدث خطأ أثناء فتح الشاشة";
+  $("retryScreen").onclick=()=>goto(page);
+  notify("تعذر فتح "+(titles[page]||"الشاشة")+": "+(error?.message||"خطأ غير معروف"));
+ }
 }
 function stat(title,value){return '<div class="card"><div class="muted">'+title+'</div><div class="stat">'+value+'</div></div>'}
 function dashboard(){
@@ -129,15 +193,48 @@ function dashboard(){
  '<div class="card"><h2>آخر الفواتير</h2>'+saleTable([...app.data.sales].slice(-5).reverse())+'</div>'+
  (low.length?'<div class="card"><h2>منتجات تحتاج إعادة تعبئة</h2>'+low.map(p=>'<p>'+esc(p.name)+' — المتوفر '+p.stock+'</p>').join("")+'</div>':"");
 }
+function nextProductBarcode(){
+ let val;
+ do{val="28"+String(Math.floor(Math.random()*1e11)).padStart(11,"0")}
+ while(app.data.products.some(p=>p.barcode===val));
+ return val;
+}
+function drawProductBarcode(){
+ const input=document.querySelector('#formProduct [name="barcode"]'),svg=$("barcodePreview");
+ if(!input||!svg)return;
+ if(!input.value.trim()){svg.replaceChildren();return}
+ try{JsBarcode(svg,input.value.trim(),{format:"CODE128",displayValue:true,height:60,width:2,margin:8,fontSize:13})}
+ catch(e){svg.replaceChildren();notify("صيغة الباركود غير مدعومة: "+e.message)}
+}
 function productForm(pid=""){
- const p=app.data.products.find(x=>x.id===pid)||{id:"",name:"",barcode:"",category:"",size:"",color:"",price:0,cost:0,stock:0,minimum:3};
+ closeBarcodeCamera();
+ const p=app.data.products.find(x=>x.id===pid)||{id:"",name:"",barcode:nextProductBarcode(),category:"",size:"",color:"",price:0,cost:0,stock:0,minimum:3};
  $("title").textContent=pid?"تعديل منتج":"إضافة منتج";
  $("content").innerHTML='<div class="card"><form id="formProduct"><input type="hidden" name="id" value="'+esc(p.id)+'"><div class="form-grid">'+
- field("name","اسم المنتج",p.name,true)+field("barcode","الباركود",p.barcode)+field("category","القسم",p.category)+field("size","المقاس / الحجم",p.size)+field("color","اللون / الصنف",p.color)+
- field("cost","سعر التكلفة", (p.cost/100).toFixed(2),true,"number")+field("price","سعر البيع",(p.price/100).toFixed(2),true,"number")+
+ field("name","اسم المنتج",p.name,true)+field("category","القسم",p.category)+field("size","المقاس / الحجم",p.size)+field("color","اللون / الصنف",p.color)+
+ field("cost","سعر التكلفة",(p.cost/100).toFixed(2),true,"number")+field("price","سعر البيع",(p.price/100).toFixed(2),true,"number")+
  field("stock","الكمية",p.stock,true,"integer")+field("minimum","حد تنبيه المخزون",p.minimum,true,"integer")+'</div>'+
+ '<div class="barcode-entry"><label for="productBarcodeField">باركود المنتج<input id="productBarcodeField" name="barcode" autocomplete="off" inputmode="numeric" value="'+esc(p.barcode)+'" placeholder="امسح الباركود المطبوع أو أدخله يدويًا"></label>'+
+ '<div class="barcode-tools"><button type="button" class="primary" id="scanExistingBarcode">📷 سكان الباركود بالكاميرا</button><button type="button" id="generateBarcode">توليد باركود جديد</button><button type="button" id="previewBarcodeBtn">عرض الباركود</button></div>'+
+ '<p class="muted small">إذا كان المنتج عليه باركود مطبوع، امسحه بالكاميرا فيُضاف رقمه هنا تلقائيًا. لا يتم حفظ المنتج إلا عند الضغط على حفظ المنتج.</p>'+
+ '<label class="barcode-photo-label">📸 قراءة من صورة أو التقاط صورة للباركود<input type="file" id="productBarcodePhoto" accept="image/*" capture="environment"></label><div id="productCameraPanel" class="hidden camera-panel"><div id="productCameraReader"></div><p id="productCameraStatus" class="muted"></p><button type="button" id="stopProductCamera">إغلاق الكاميرا</button></div>'+
+ '<div class="barcode-display"><svg id="barcodePreview" role="img" aria-label="باركود المنتج"></svg></div></div>'+
  '<div class="row"><button type="submit" class="primary">حفظ المنتج</button><button type="button" data-action="nav-products">إلغاء</button></div></form></div>';
  $("formProduct").onsubmit=saveProduct;
+ $("generateBarcode").onclick=()=>{document.querySelector('#formProduct [name="barcode"]').value=nextProductBarcode();drawProductBarcode()};
+ $("previewBarcodeBtn").onclick=drawProductBarcode;
+ $("scanExistingBarcode").onclick=()=>openBarcodeCamera("product");
+ $("stopProductCamera").onclick=closeBarcodeCamera;
+ $("productBarcodePhoto").onchange=e=>readBarcodePhoto("product",e.target);
+ drawProductBarcode();
+}
+function printProductBarcode(pid){
+ const p=app.data.products.find(x=>x.id===pid);
+ if(!p?.barcode)return notify("لا يوجد باركود لهذا المنتج");
+ $("title").textContent="طباعة باركود المنتج";
+ $("content").innerHTML='<section class="card receipt" id="receipt"><div class="barcode-display"><h2>'+esc(p.name)+'</h2><svg id="barcodeToPrint" role="img" aria-label="باركود"></svg><p>'+fmt(p.price)+'</p></div></section><div class="row no-print"><button class="primary" data-action="print">طباعة الباركود</button><button data-action="nav-products">العودة للمنتجات</button></div>';
+ try{JsBarcode("#barcodeToPrint",p.barcode,{format:"CODE128",displayValue:true,height:75,width:2,margin:8})}
+ catch(e){notify("تعذر توليد الباركود: "+e.message)}
 }
 function field(name,label,value,required=false,type="text"){
  let attrs=type==="number"?'type="number" step="0.01" min="0"':type==="integer"?'type="number" step="1" min="0"':'type="text"';
@@ -166,32 +263,142 @@ function products(){
  const list=app.data.products.filter(p=>[p.name,p.barcode,p.category,p.size,p.color].join(" ").toLowerCase().includes(q));
  $("content").innerHTML='<div class="card"><div class="row"><input id="productSearch" placeholder="ابحث بالاسم أو الباركود" value="'+esc(app.productSearch)+'"><button class="primary" data-action="new-product">+ منتج جديد</button></div></div>'+
  '<div class="card scroll"><table><thead><tr><th>اسم المنتج</th><th>الباركود</th><th>المقاس/اللون</th><th>سعر البيع</th><th>الكمية</th><th>التحكم</th></tr></thead><tbody>'+
- list.map(p=>'<tr><td>'+esc(p.name)+'</td><td>'+esc(p.barcode)+'</td><td>'+esc([p.size,p.color].filter(Boolean).join(" / "))+'</td><td>'+fmt(p.price)+'</td><td>'+(p.stock<=p.minimum?'<span class="tag">'+p.stock+'</span>':p.stock)+'</td><td><div class="actions"><button class="btn-sm" data-action="edit-product" data-id="'+p.id+'">تعديل</button><button class="danger btn-sm" data-action="remove-product" data-id="'+p.id+'">حذف</button></div></td></tr>').join("")+
+ list.map(p=>'<tr><td>'+esc(p.name)+'</td><td>'+esc(p.barcode)+'</td><td>'+esc([p.size,p.color].filter(Boolean).join(" / "))+'</td><td>'+fmt(p.price)+'</td><td>'+(p.stock<=p.minimum?'<span class="tag">'+p.stock+'</span>':p.stock)+'</td><td><div class="actions"><button class="btn-sm" data-action="edit-product" data-id="'+p.id+'">تعديل</button><button class="btn-sm" data-action="print-barcode" data-id="'+p.id+'">باركود</button><button class="danger btn-sm" data-action="remove-product" data-id="'+p.id+'">حذف</button></div></td></tr>').join("")+
  '</tbody></table>'+(!list.length?'<div class="empty">لا توجد منتجات مطابقة</div>':"")+'</div>';
  $("productSearch").addEventListener("input",e=>{app.productSearch=e.target.value;const i=e.target.selectionStart;products();$("productSearch").focus();$("productSearch").setSelectionRange(i,i)});
 }
 function cartTotal(){return app.cart.reduce((a,x)=>a+x.qty*x.price,0)}
+let barcodeScanner=null,scannerStarting=false,scanStamp=0,scanBusy=false;
+const BARCODE_FORMATS=()=>{
+ const f=Html5QrcodeSupportedFormats;
+ return [f.QR_CODE,f.CODE_128,f.EAN_13,f.EAN_8,f.UPC_A,f.UPC_E,f.CODE_39,f.CODE_93,f.ITF].filter(x=>x!==undefined);
+};
+function barcodeScanTarget(mode){
+ const product=mode==="product";
+ return {
+  panel:$(product?"productCameraPanel":"cameraPanel"),
+  readerId:product?"productCameraReader":"cameraReader",
+  status:$(product?"productCameraStatus":"cameraStatus")
+ };
+}
+async function closeBarcodeCamera(){
+ const old=barcodeScanner;barcodeScanner=null;
+ if(old){try{await old.stop()}catch(e){}try{await old.clear()}catch(e){}}
+ for(const id of ["cameraPanel","productCameraPanel"]){const panel=$(id);if(panel)panel.classList.add("hidden")}
+}
+async function handleReadBarcode(raw,mode,status){
+ const code=String(raw||"").trim();
+ if(!code||scanBusy||Date.now()-scanStamp<1100)return;
+ scanStamp=Date.now();
+ if(mode==="product"){
+  const field=$("productBarcodeField");
+  if(!field)return;
+  const currentId=document.querySelector('#formProduct [name="id"]')?.value||"";
+  if(app.data.products.some(p=>p.barcode===code&&p.id!==currentId)){
+   if(status)status.textContent="هذا الباركود مسجّل لمنتج آخر: "+code;
+   notify("هذا الباركود مستخدم لمنتج آخر");
+   return;
+  }
+  scanBusy=true;
+  field.value=code;
+  await closeBarcodeCamera();
+  drawProductBarcode();
+  notify("تمت قراءة الباركود: "+code+" — أكمل بيانات المنتج ثم احفظ.");
+  scanBusy=false;
+  return;
+ }
+ const p=app.data.products.find(x=>x.barcode&&x.barcode===code);
+ if(!p){
+  if(status)status.textContent="تمت قراءة الرمز: "+code+"، لكنه غير مسجّل ضمن المنتجات.";
+  notify("باركود غير مسجّل: "+code);
+  return;
+ }
+ scanBusy=true;
+ await closeBarcodeCamera();
+ if(app.page==="pos"){app.posSearch="";addCart(p.id);notify("تمت إضافة "+p.name+" من الكاميرا")}
+ scanBusy=false;
+}
+async function openBarcodeCamera(mode="pos"){
+ if(scannerStarting||barcodeScanner)return;
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)return notify("تحتاج الكاميرا إلى HTTPS أو التطبيق المثبّت.");
+ if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر.");
+ const {panel,readerId,status}=barcodeScanTarget(mode);
+ if(!panel||!status)return;
+ panel.classList.remove("hidden");scannerStarting=true;
+ status.textContent="جارٍ تشغيل الكاميرا...";
+ let instance=null;
+ try{
+  // تعطيل الكاشف الأصلي عند دعمه: نعتمد محرك ZXing نفسه على iOS وAndroid.
+  // تقييد الصيغ يحسن سرعة قراءة باركود المنتجات على Safari.
+  instance=new Html5Qrcode(readerId,{
+   verbose:false,formatsToSupport:BARCODE_FORMATS(),useBarCodeDetectorIfSupported:false
+  });
+  barcodeScanner=instance;
+  await instance.start(
+   {facingMode:"environment"},
+   {fps:10,disableFlip:false,qrbox:(w,h)=>({
+    width:Math.min(Math.floor(w*.92),400),
+    height:Math.min(Math.floor(h*.70),260)
+   })},
+   decoded=>{handleReadBarcode(decoded,mode,status).catch(e=>notify("خطأ أثناء قراءة الباركود: "+e.message))},
+   ()=>{}
+  );
+  if(barcodeScanner===instance)status.textContent="وجّه الكاميرا إلى الرمز وحرّك الهاتف قليلًا حتى يصبح الباركود واضحًا. إذا لم يقرأ على الآيفون، جرّب زر «قراءة من صورة».";
+ }catch(e){
+  barcodeScanner=null;
+  try{if(instance)await instance.clear()}catch(_){}
+  status.textContent="تعذر تشغيل الكاميرا: "+(e?.message||e);
+  notify("تعذر تشغيل الكاميرا");
+ }finally{scannerStarting=false}
+}
+async function readBarcodePhoto(mode,input){
+ const file=input?.files?.[0];
+ if(!file)return;
+ if(typeof Html5Qrcode==="undefined")return notify("ملف قارئ الباركود غير متوفر.");
+ const {readerId,status,panel}=barcodeScanTarget(mode);
+ try{
+  await closeBarcodeCamera();
+  if(panel)panel.classList.remove("hidden");
+  if(status)status.textContent="جارٍ قراءة الباركود من الصورة...";
+  // مسح صورة ثابتة بديل مفيد على Safari عند تعذر التعرف على الفيديو.
+  const reader=new Html5Qrcode(readerId,{
+   verbose:false,formatsToSupport:BARCODE_FORMATS(),useBarCodeDetectorIfSupported:false
+  });
+  try{
+   const value=await reader.scanFile(file,true);
+   await handleReadBarcode(value,mode,status);
+  }finally{try{await reader.clear()}catch(e){}}
+ }catch(e){
+  if(status)status.textContent="تعذرت قراءة الصورة: "+(e?.message||e)+". حاول تصوير الباركود عن قرب وبإضاءة جيدة.";
+  notify("لم أتمكن من قراءة الرمز من الصورة");
+ }finally{input.value=""}
+}
 function pos(){
+ closeBarcodeCamera();
  const q=app.posSearch.toLowerCase().trim();
  const list=app.data.products.filter(p=>[p.name,p.barcode,p.category,p.size,p.color].join(" ").toLowerCase().includes(q));
  const subtotal=cartTotal();
- $("content").innerHTML='<div class="pos"><section><div class="card"><h2>المنتجات</h2><input id="scan" placeholder="امسح الباركود أو ابحث باسم المنتج" autocomplete="off" value="'+esc(app.posSearch)+'"><p class="muted small">قارئ USB/Bluetooth يعمل كلوحة مفاتيح. امسح الباركود ثم Enter.</p></div><div class="product-grid">'+
+ $("content").innerHTML='<div class="pos mobile-pos"><section class="pos-products"><div class="card pos-search"><h2>المنتجات</h2><input id="scan" placeholder="ابحث بالاسم أو امسح باركود المنتج" autocomplete="off" value="'+esc(app.posSearch)+'"><div class="scan-actions"><button class="primary" id="startCamera" type="button">📷 مسح بالكاميرا</button><button type="button" id="focusScan">قارئ باركود خارجي</button></div><p class="muted small">يعمل قارئ USB/Bluetooth بالباركود ثم Enter. الكاميرا تدعم QR والباركود.</p><label class="barcode-photo-label">📸 قراءة الباركود من صورة<input id="posBarcodePhoto" type="file" accept="image/*" capture="environment"></label><div id="cameraPanel" class="hidden"><div id="cameraReader"></div><p id="cameraStatus" class="muted"></p><button id="stopCamera" type="button">إغلاق الكاميرا</button></div></div><div class="product-grid">'+
  list.map(p=>'<button class="product-tile" data-action="add-cart" data-id="'+p.id+'" '+(p.stock<=0?"disabled":"")+'><b>'+esc(p.name)+'</b><span class="muted">'+esc([p.size,p.color].filter(Boolean).join(" / "))+'</span><p class="muted">المخزون: '+p.stock+'</p><div class="price">'+fmt(p.price)+'</div></button>').join("")+
- '</div></section><section class="card"><h2>سلة المبيعات</h2><div class="scroll"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>المجموع</th><th></th></tr></thead><tbody>'+
- app.cart.map((x,i)=>'<tr><td>'+esc(x.name)+'</td><td><input aria-label="الكمية" data-qty="'+i+'" type="number" min="1" step="1" style="width:75px" value="'+x.qty+'"></td><td>'+fmt(x.price*x.qty)+'</td><td><button class="danger btn-sm" data-action="drop-cart" data-index="'+i+'">×</button></td></tr>').join("")+
- '</tbody></table></div><hr><div class="row"><b>المجموع</b><b>'+fmt(subtotal)+'</b></div>'+
- '<label>الخصم<input id="discount" type="number" step="0.01" min="0" max="'+(subtotal/100).toFixed(2)+'" value="'+(app.discount/100).toFixed(2)+'"></label>'+
- '<div class="row"><b>الإجمالي النهائي</b><strong id="finalTotal" class="total">'+fmt(Math.max(0,subtotal-app.discount))+'</strong></div>'+
+ '</div></section><section class="card pos-checkout"><h2>سلة المبيعات <span class="cart-counter">'+app.cart.reduce((s,x)=>s+x.qty,0)+'</span></h2><div class="cart-mobile">'+
+ (app.cart.length?app.cart.map((x,i)=>'<div class="cart-line"><div class="cart-item-heading"><b>'+esc(x.name)+'</b><button class="danger btn-sm" data-action="drop-cart" data-index="'+i+'" aria-label="حذف من السلة">حذف</button></div><div class="cart-line-bottom"><label>الكمية<input aria-label="الكمية" data-qty="'+i+'" type="number" min="1" step="1" inputmode="numeric" value="'+x.qty+'"></label><div class="cart-item-price">'+fmt(x.price*x.qty)+'</div></div></div>').join(""):'<p class="empty">السلة فارغة — اختر منتجًا أو امسح الباركود</p>')+
+ '</div><hr><div class="price-row"><b>المجموع</b><b>'+fmt(subtotal)+'</b></div>'+
+ '<label>الخصم<input id="discount" type="number" step="0.01" inputmode="decimal" min="0" max="'+(subtotal/100).toFixed(2)+'" value="'+(app.discount/100).toFixed(2)+'"></label>'+
+ '<div class="price-row"><b>الإجمالي النهائي</b><strong id="finalTotal" class="total">'+fmt(Math.max(0,subtotal-app.discount))+'</strong></div>'+
  '<label>طريقة الدفع<select id="payment"><option value="cash" '+(app.payment==="cash"?"selected":"")+'>نقدي</option><option value="card" '+(app.payment==="card"?"selected":"")+'>بطاقة</option><option value="transfer" '+(app.payment==="transfer"?"selected":"")+'>تحويل</option></select></label>'+
  '<label>اسم العميل (اختياري)<input id="customer" placeholder="زبون نقدي" value="'+esc(app.customer)+'"></label>'+
- '<div class="row"><button class="primary" data-action="checkout" '+(!app.cart.length?"disabled":"")+'>إتمام البيع</button><button data-action="clear-cart">تفريغ السلة</button></div></section></div>';
+ '<div class="checkout-actions"><button class="primary" data-action="checkout" '+(!app.cart.length?"disabled":"")+'>إتمام البيع • '+fmt(Math.max(0,subtotal-app.discount))+'</button><button data-action="clear-cart">تفريغ السلة</button></div></section></div>';
+ $("startCamera").onclick=()=>openBarcodeCamera("pos");
+ $("stopCamera").onclick=closeBarcodeCamera;
+ $("posBarcodePhoto").onchange=e=>readBarcodePhoto("pos",e.target);
+ $("focusScan").onclick=()=>{$("scan").focus();notify("امسح الباركود بالقارئ الخارجي ثم Enter")};
  $("scan").oninput=e=>{app.posSearch=e.target.value;const i=e.target.selectionStart;pos();$("scan").focus();$("scan").setSelectionRange(i,i)};
  $("scan").onkeydown=e=>{
   if(e.key!=="Enter")return;
   e.preventDefault();
-  const barcode=app.posSearch.trim();
-  const p=app.data.products.find(x=>x.barcode&&x.barcode===barcode);
-  if(p){addCart(p.id);app.posSearch="";pos();$("scan").focus()}else notify("لم أجد منتجًا بهذا الباركود");
+  const code=app.posSearch.trim();
+  const p=app.data.products.find(x=>x.barcode&&x.barcode===code);
+  if(p){app.posSearch="";addCart(p.id);$("scan")?.focus()}else notify("لم أجد منتجًا بهذا الباركود");
  };
  document.querySelectorAll("[data-qty]").forEach(el=>el.onchange=e=>changeQty(Number(e.target.dataset.qty),e.target.value));
  $("discount").oninput=e=>{app.discount=cents(e.target.value);$("finalTotal").textContent=fmt(Math.max(0,cartTotal()-(app.discount||0)))};
@@ -261,13 +468,24 @@ function reports(){
  '<p class="muted">الربح تقديري قبل المصاريف والضرائب. يتم احتساب تكلفة البضاعة وفق السعر المحفوظ وقت البيع.</p>';
 }
 function settings(){
- const cloud=DriveAuth.connected();
+ const cloud=DriveAuth.connected(),p=backupPrefs();
+ const intervals=[[5,"كل 5 دقائق"],[15,"كل 15 دقيقة"],[30,"كل 30 دقيقة"],[60,"كل ساعة"],[180,"كل 3 ساعات"],[360,"كل 6 ساعات"],[720,"كل 12 ساعة"],[1440,"كل 24 ساعة"]];
+ const last=p.lastSuccess?when(new Date(p.lastSuccess).toISOString()):"لم تكتمل أي نسخة بعد";
  $("content").innerHTML='<div class="card"><h2>المنشأة والحساب</h2><p><b>المحل:</b> '+esc(app.data.business)+'</p><p><b>حساب Google:</b> '+esc(app.user.email)+'</p><p><b>العملة:</b> '+esc(app.data.currency)+'</p><p><b>نوع النشاط:</b> '+esc(app.data.activity)+'</p><button data-action="logout">تسجيل الخروج</button></div>'+
  '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">النسخ تحفظ داخل مساحة التطبيق المخفية في Drive الخاص بهذا الحساب. ليست مزامنة آنية بين أجهزة مختلفة.</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
- '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
- '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. النسخ الدورية تستبدل ملف النسخ السحابي الحالي؛ لا تبيع على جهازين مختلفين ثم ترفع النسخ بالتناوب.</p></div>'+
+ '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
+ '<hr><h2>النسخ الاحتياطي التلقائي</h2>'+
+ '<label class="backup-toggle"><input id="autoBackupEnabled" type="checkbox" '+(p.enabled?"checked":"")+'> تفعيل النسخ الاحتياطي التلقائي إلى Google Drive</label>'+
+ '<label>المدة الزمنية بين النسخ<select id="autoBackupMinutes" '+(!p.enabled?"disabled":"")+'>'+intervals.map(([m,label])=>'<option value="'+m+'" '+(p.minutes===m?"selected":"")+'>'+label+'</option>').join("")+'</select></label>'+
+ '<p class="muted"><b>حالة النسخ:</b> '+esc(backupStatusText())+'</p>'+
+ '<p class="muted"><b>آخر نسخة سحابية ناجحة من هذا الجهاز:</b> '+esc(last)+'</p>'+
+ (p.lastError?'<p class="muted"><b>آخر خطأ:</b> '+esc(p.lastError)+'</p>':"")+
+ '<p class="notice">يعمل النسخ التلقائي فقط عندما يكون التطبيق مفتوحًا ويعمل، والإنترنت متوفرًا، وجلسة Google Drive صالحة. لا يمكن ضمان النسخ عند إغلاق التطبيق أو قفل الهاتف. يُرفع ملف جديد عند وجود تغييرات؛ والنسخ التلقائي يستبدل النسخة السحابية السابقة، ولا يحتفظ بإصدارات متعددة.</p>'+
+ '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. لا تستخدم النسخ التلقائي على جهازين لنفس المحل، لأنها ليست مزامنة آنية.</p></div>'+
  '<div class="card"><h2>نسخة احتياطية محلية</h2><div class="actions"><button data-action="export">تحميل نسخة JSON</button><label style="margin:0">اختيار نسخة للاستعادة<input type="file" id="importFile" accept="application/json,.json"></label><button data-action="import">استعادة النسخة</button></div><p class="muted">ملف JSON غير مشفر. احفظه في مكان آمن ولا تشاركه.</p></div>';
+ $("autoBackupEnabled").onchange=updateBackupSettings;
+ $("autoBackupMinutes").onchange=updateBackupSettings;
 }
 function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerEmail:app.user.email,exportedAt:new Date().toISOString(),data:clone(app.data)}}
 function validBackup(backup){
@@ -296,14 +514,36 @@ async function importJSON(){
  }catch(e){notify("فشلت الاستعادة: "+e.message)}
 }
 async function cloudBackup(manual=true){
+ if(backupRunning){if(manual)notify("هناك عملية نسخ احتياطي جارية");return}
+ if(!app.user||!app.data)return;
  if(!DriveAuth.connected()){if(manual)notify("سجّل الدخول بحساب Google أولًا");return}
  if(!navigator.onLine){if(manual)notify("الإنترنت غير متاح");return}
+ const owner=app.user.sub,preference=backupPrefs();
+ if(!manual&&(!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
+ backupRunning=true;
+ preference.lastAttempt=Date.now();
+ saveBackupPrefs(preference);
  try{
   await saveQueue;
-  await DriveAuth.upload(buildSnapshot());
+  const snapshot=buildSnapshot();
+  await DriveAuth.upload(snapshot);
+  if(app.user?.sub===owner){
+   const p=backupPrefs();
+   p.lastSuccess=Date.now();p.lastDataUpdatedAt=snapshot.data.updatedAt;
+   p.lastError="";
+   saveBackupPrefs(p);
+  }
   if(manual)notify("تم رفع النسخة إلى Google Drive بنجاح");
+ }catch(e){
+  if(app.user?.sub===owner){
+   const p=backupPrefs();p.lastError=String(e.message||e).slice(0,180);saveBackupPrefs(p);
+  }
+  notify("فشل النسخ إلى Drive: "+e.message);
+ }finally{
+  backupRunning=false;
+  scheduleBackup();
   if(app.page==="settings")settings();
- }catch(e){notify("فشل النسخ إلى Drive: "+e.message)}
+ }
 }
 async function cloudRestore(){
  if(!DriveAuth.connected())return notify("سجّل الدخول بحساب Google أولًا");
@@ -320,7 +560,7 @@ async function connectDrive(){
   const user=await DriveAuth.authenticate();
   if(user.sub!==app.user.sub){DriveAuth.logout();throw Error("حساب Google مختلف عن حساب صاحب المحل. سجّل الخروج ثم افتح حساب المحل المناسب.")}
   app.user={...user};localStorage.setItem("smartpos-last-user",JSON.stringify(user));
-  notify("تم الاتصال بحساب "+user.email);settings();
+  scheduleBackup();notify("تم الاتصال بحساب "+user.email);settings();
  }catch(e){notify(e.message)}
 }
 async function perform(action,target){
@@ -328,6 +568,7 @@ async function perform(action,target){
   case "nav-pos":return goto("pos");case "nav-products":return goto("products");case "nav-reports":return goto("reports");case "nav-sales":return goto("sales");
   case "new-product":return productForm();case "edit-product":return productForm(target.dataset.id);
   case "remove-product":return removeProduct(target.dataset.id);
+  case "print-barcode":return printProductBarcode(target.dataset.id);
   case "add-cart":return addCart(target.dataset.id);
   case "drop-cart":app.cart.splice(Number(target.dataset.index),1);return pos();
   case "clear-cart":if(!app.cart.length||confirm("تفريغ السلة؟")){app.cart=[];app.discount=0;pos()}return;
@@ -342,14 +583,15 @@ function boot(){
  $("btnGoogle").onclick=login;
  $("btnOffline").onclick=offlineLogin;
  $("formSetup").onsubmit=setup;
- $("newSale").onclick=()=>goto("pos");
+ $("newSale").addEventListener("click",e=>{e.preventDefault();goto("pos")});
  $("menu").onclick=e=>{const btn=e.target.closest("[data-page]");if(btn)goto(btn.dataset.page)};
  $("content").onclick=e=>{const btn=e.target.closest("[data-action]");if(btn)perform(btn.dataset.action,btn)};
  const cached=localStorage.getItem("smartpos-last-user");
  $("offlineArea").classList.toggle("hidden",!cached);
- window.addEventListener("online",()=>{localStatus();if(DriveAuth.connected())scheduleBackup()});
- window.addEventListener("offline",localStatus);
+ window.addEventListener("online",()=>{localStatus();scheduleBackup()});
+ window.addEventListener("offline",()=>{localStatus();clearTimeout(backupTimer);backupTimer=null});
  localStatus();setViews("signin");
+ document.addEventListener("visibilitychange",()=>{if(document.hidden)closeBarcodeCamera();else scheduleBackup()});
  if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(e=>console.warn("PWA:",e));
 }
 boot();
