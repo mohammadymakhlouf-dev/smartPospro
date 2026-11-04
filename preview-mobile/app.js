@@ -112,13 +112,21 @@ function logout(){
 }
 function goto(page){
  if(page!=="pos")closeBarcodeCamera();
- app.page=page;
+ if(!app.data){notify("لم يتم تحميل بيانات المحل. أعد تسجيل الدخول.");return;}
  const titles={dashboard:"لوحة التحكم",pos:"نقطة البيع",products:"المنتجات والمخزون",sales:"سجل الفواتير",reports:"التقارير",settings:"الإعدادات وGoogle Drive"};
+ const map={dashboard:dashboard,pos:pos,products:products,sales:sales,reports:reports,settings:settings};
+ app.page=page;
  $("title").textContent=titles[page]||"SmartPOS Pro";
  $("subtitle").textContent=app.data.business+" • "+(app.user.email||"");
  document.querySelectorAll("#menu button").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
- const map={dashboard:dashboard,pos:pos,products:products,sales:sales,reports:reports,settings:settings};
- (map[page]||dashboard)();
+ try{(map[page]||dashboard)()}
+ catch(error){
+  console.error("SmartPOS screen error:",page,error);
+  $("content").innerHTML='<div class="card"><h2>تعذر فتح الشاشة</h2><p class="notice" id="screenErrorText"></p><button class="primary" id="retryScreen">إعادة المحاولة</button></div>';
+  $("screenErrorText").textContent=error?.message||"حدث خطأ أثناء فتح الشاشة";
+  $("retryScreen").onclick=()=>goto(page);
+  notify("تعذر فتح "+(titles[page]||"الشاشة")+": "+(error?.message||"خطأ غير معروف"));
+ }
 }
 function stat(title,value){return '<div class="card"><div class="muted">'+title+'</div><div class="stat">'+value+'</div></div>'}
 function dashboard(){
@@ -278,7 +286,7 @@ function pos(){
  '<label>طريقة الدفع<select id="payment"><option value="cash" '+(app.payment==="cash"?"selected":"")+'>نقدي</option><option value="card" '+(app.payment==="card"?"selected":"")+'>بطاقة</option><option value="transfer" '+(app.payment==="transfer"?"selected":"")+'>تحويل</option></select></label>'+
  '<label>اسم العميل (اختياري)<input id="customer" placeholder="زبون نقدي" value="'+esc(app.customer)+'"></label>'+
  '<div class="checkout-actions"><button class="primary" data-action="checkout" '+(!app.cart.length?"disabled":"")+'>إتمام البيع • '+fmt(Math.max(0,subtotal-app.discount))+'</button><button data-action="clear-cart">تفريغ السلة</button></div></section></div>';
- $("startCamera").onclick=openBarcodeCamera;
+ $("startCamera").onclick=()=>openBarcodeCamera("pos");
  $("stopCamera").onclick=closeBarcodeCamera;
  $("focusScan").onclick=()=>{$("scan").focus();notify("امسح الباركود بالقارئ الخارجي ثم Enter")};
  $("scan").oninput=e=>{app.posSearch=e.target.value;const i=e.target.selectionStart;pos();$("scan").focus();$("scan").setSelectionRange(i,i)};
@@ -439,7 +447,7 @@ function boot(){
  $("btnGoogle").onclick=login;
  $("btnOffline").onclick=offlineLogin;
  $("formSetup").onsubmit=setup;
- $("newSale").onclick=()=>goto("pos");
+ $("newSale").addEventListener("click",e=>{e.preventDefault();goto("pos")});
  $("menu").onclick=e=>{const btn=e.target.closest("[data-page]");if(btn)goto(btn.dataset.page)};
  $("content").onclick=e=>{const btn=e.target.closest("[data-action]");if(btn)perform(btn.dataset.action,btn)};
  const cached=localStorage.getItem("smartpos-mobile-preview-last-user");
