@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1355a7"><title>SmartPOS Pro — تجربة صور المنتجات</title>
+<style>
+:root{--blue:#1355a7;--light:#eaf3ff;--green:#159947;--dark:#122843;--muted:#617189;--line:#d9e5f5}
+*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;background:#edf5ff;color:var(--dark);margin:0;font-size:14px}button,input{font:inherit}button{cursor:pointer;border:0;border-radius:12px;padding:11px 14px;min-height:44px}button:focus-visible,input:focus-visible{outline:3px solid #76acff}
+.top{background:linear-gradient(125deg,#0b397b,#1769c8);color:#fff;padding:18px 14px 20px}.wrap{max-width:1080px;margin:auto}.top h1{font-size:22px;margin:4px 0 8px}.top p{margin:0;color:#dfeaff;line-height:1.8;font-size:12px}.demo{background:#f9dca2;color:#664008;border-radius:99px;padding:5px 12px;font-size:12px;display:inline-block;font-weight:bold}
+.content{padding:15px 12px 40px}.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-bottom:14px}.tabs{display:flex;gap:8px}.tabs button{background:#dce9ff;color:#184986;font-weight:bold}.tabs button.active{background:var(--blue);color:white}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:15px;box-shadow:0 4px 22px #1d4b8620;margin-bottom:14px}h2{font-size:18px;margin:0 0 12px}.hint{color:var(--muted);line-height:1.8;margin:8px 0;font-size:12px}.filter{width:100%;border:1px solid #c9d7eb;border-radius:12px;padding:12px;margin:0 0 14px;font-size:16px}
+.catalog{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.item{background:#fff;border:1px solid #dbe7f5;border-radius:17px;overflow:hidden;display:flex;flex-direction:column;min-width:0}.photo{height:155px;background:linear-gradient(145deg,#f7fbff,#e4eefb);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.photo img{height:100%;width:100%;object-fit:cover}.photo .emoji{font-size:60px;filter:drop-shadow(0 4px 5px #10326618)}.item-body{padding:12px;display:flex;flex:1;flex-direction:column;gap:8px}.item b{font-size:14px;overflow-wrap:anywhere}.item small{color:var(--muted)}.price{font-size:18px;font-weight:800;color:var(--blue)}.product-btn{background:var(--green);color:white;width:100%;font-weight:800;min-height:47px;margin-top:auto}.product-btn:active{background:#0e6935}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}.count{background:#dff7e9;padding:5px 9px;color:#187341;border-radius:99px;font-size:12px}.stock{color:var(--muted);font-size:12px}.photo-btn{background:#e6f0ff;color:#174b96;width:100%;font-weight:bold}.photo-btn strong{font-size:13px}
+.cart-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #ecf0f6}.cart-row button{background:#fff0f0;color:#b33434;padding:6px 10px;min-height:36px}.cart-total{font-size:22px;color:var(--green);font-weight:800}.cart-actions{display:flex;gap:9px;flex-wrap:wrap}.cart-actions button{flex:1;background:#e8effb}.cart-actions button:first-child{background:var(--green);color:white}.inventory{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inventory .photo{height:160px}.inventory .item-body{gap:9px}.pill{background:#fff;color:#1264bd;border:1px solid #c5dcfb;padding:9px 13px}.back{color:white;text-decoration:underline;text-underline-offset:3px}.empty{color:var(--muted);text-align:center;padding:18px}.footer{font-size:12px;color:var(--muted);text-align:center;margin:17px}
+#flash{position:fixed;bottom:18px;left:14px;right:14px;max-width:450px;margin:auto;padding:13px 16px;background:#102f55;color:#fff;border-radius:13px;z-index:5;display:none;text-align:center;box-shadow:0 12px 24px #0004}
+@media(min-width:850px){.split{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.75fr);gap:15px}.split .cart{position:sticky;top:15px;align-self:start}.inventory{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.catalog{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.photo{height:130px}.item-body{padding:10px}.item b{font-size:13px}.price{font-size:16px}.inventory .photo{height:120px}}
+@media(max-width:370px){.photo{height:110px}.item-body{padding:8px}.bar{align-items:stretch}.tabs{width:100%}.tabs button{flex:1}}
+</style></head><body>
+<header class="top"><div class="wrap"><span class="demo">نموذج تجربة فقط — بيانات منفصلة</span><h1>▣ SmartPOS <b>Pro</b> — تصميم الصور</h1><p>خلفية زرقاء وأزرار منتجات خضراء، مع عرض صور المنتجات في نقطة البيع والمخزون.</p></div></header>
+<main class="wrap content"><div class="bar"><div class="tabs"><button id="tabPos" class="active" type="button">🛒 نقطة البيع</button><button id="tabStock" type="button">📦 المخزون</button></div><button class="pill" id="reset" type="button">إعادة ضبط التجربة</button></div>
+<div id="posPage" class="split"><section><div class="card"><h2>اختيار المنتجات</h2><input id="searchPos" class="filter" placeholder="ابحث عن منتج بالاسم..." autocomplete="off"><div id="posList" class="catalog"></div></div></section><aside class="card cart"><h2>سلة المبيعات <span id="cartCount" class="count">0</span></h2><div id="cartList" class="empty">السلة فارغة، اضغط زر المنتج الأخضر.</div><hr><div class="row"><b>الإجمالي</b><span id="total" class="cart-total">0.00 ₪</span></div><p class="hint">الفاتورة هنا للتجربة، ولا يتم تسجيل مبيعات حقيقية.</p><div class="cart-actions"><button id="checkout" type="button">تجربة إتمام البيع</button><button id="clear" type="button">تفريغ السلة</button></div></aside></div>
+<div id="stockPage" hidden><section class="card"><h2>المنتجات والمخزون</h2><p class="hint">اضغط «إضافة / تغيير الصورة» لأي منتج لتجربته بصورة حقيقية من معرض الهاتف أو الكاميرا. تبقى الصورة داخل هذه التجربة فقط.</p><input id="searchStock" class="filter" placeholder="ابحث في المخزون..." autocomplete="off"><div id="stockList" class="inventory"></div></section></div>
+<p class="footer">لا يتصل هذا النموذج بحساب Google أو بقاعدة بيانات SmartPOS Pro الأصلية. لم يتم تعديل نظامك الأساسي.</p>
+<input type="file" id="picker" accept="image/*" style="display:none"><div id="flash" role="status" aria-live="polite"></div>
+</main>
+<script>
+"use strict";
+var KEY="smartpos-image-design-demo-v1";
+var seed=[{id:"1",name:"حذاء رياضي",price:120,stock:15,icon:"👟"},{id:"2",name:"حقيبة يد",price:95,stock:9,icon:"👜"},{id:"3",name:"سماعات",price:75,stock:18,icon:"🎧"},{id:"4",name:"قميص قطني",price:65,stock:22,icon:"👕"},{id:"5",name:"ساعة يد",price:180,stock:7,icon:"⌚"},{id:"6",name:"نظارات شمسية",price:55,stock:12,icon:"🕶️"}];
+var pics={};try{pics=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){}
+var cart={},selectedId=null,active="pos",timer=null;
+function el(id){return document.getElementById(id)}
+function money(x){return Number(x).toFixed(2)+" ₪"}
+function escapeHtml(x){return String(x).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function alertMsg(msg){var f=el("flash");f.textContent=msg;f.style.display="block";clearTimeout(timer);timer=setTimeout(function(){f.style.display="none"},3500)}
+function imageMarkup(p){return pics[p.id]?'<img alt="صورة '+escapeHtml(p.name)+'" src="'+pics[p.id]+'">':'<span class="emoji" aria-label="بدون صورة">'+p.icon+'</span>'}
+function tile(p,stockMode){
+ return '<article class="item"><div class="photo">'+imageMarkup(p)+'</div><div class="item-body"><b>'+escapeHtml(p.name)+'</b><div class="row"><span class="price">'+money(p.price)+'</span><small>متوفر '+p.stock+'</small></div>'+
+ (stockMode?'<button class="photo-btn" type="button" data-photo="'+p.id+'">📷 '+(pics[p.id]?'تغيير الصورة':'إضافة صورة')+'</button>'+(pics[p.id]?'<button class="pill" data-remove="'+p.id+'" type="button">إزالة الصورة</button>':''):'<button type="button" class="product-btn" data-add="'+p.id+'">+ إضافة للسلة</button>')+
+ '</div></article>';
+}
+function render(){
+ var q1=el("searchPos").value.trim().toLowerCase(),q2=el("searchStock").value.trim().toLowerCase();
+ el("posList").innerHTML=seed.filter(function(p){return p.name.includes(q1)}).map(function(p){return tile(p,false)}).join("")||'<p class="empty">لا يوجد منتج مطابق</p>';
+ el("stockList").innerHTML=seed.filter(function(p){return p.name.includes(q2)}).map(function(p){return tile(p,true)}).join("")||'<p class="empty">لا يوجد منتج مطابق</p>';
+ var ids=Object.keys(cart),sum=0,count=0;
+ el("cartList").className=ids.length?"":"empty";
+ el("cartList").innerHTML=ids.map(function(id){var p=seed.find(function(x){return x.id===id});var qty=cart[id];sum+=p.price*qty;count+=qty;return '<div class="cart-row"><span><b>'+escapeHtml(p.name)+'</b><br><small>'+qty+' × '+money(p.price)+'</small></span><button type="button" data-minus="'+id+'">−</button></div>'}).join("")||"السلة فارغة، اضغط زر المنتج الأخضر.";
+ el("cartCount").textContent=count;el("total").textContent=money(sum);
+}
+function tab(name){active=name;el("posPage").hidden=name!=="pos";el("stockPage").hidden=name!=="stock";el("tabPos").classList.toggle("active",name==="pos");el("tabStock").classList.toggle("active",name==="stock");render()}
+function savePics(){try{localStorage.setItem(KEY,JSON.stringify(pics))}catch(e){alertMsg("الصورة ظهرت، لكن مساحة المتصفح لا تسمح بحفظها بعد إغلاق الصفحة.")}}
+function upload(file){
+ if(!file)return;
+ if(!file.type.startsWith("image/")){alertMsg("اختر ملف صورة فقط");return}
+ var image=new Image(),url=URL.createObjectURL(file);
+ image.onload=function(){
+  var scale=Math.min(1,600/Math.max(image.width,image.height)),c=document.createElement("canvas");
+  c.width=Math.max(1,Math.round(image.width*scale));c.height=Math.max(1,Math.round(image.height*scale));
+  c.getContext("2d").drawImage(image,0,0,c.width,c.height);
+  try{pics[selectedId]=c.toDataURL("image/jpeg",0.75);savePics();render();alertMsg("تم عرض الصورة في نقطة البيع والمخزون")}catch(e){alertMsg("تعذر معالجة الصورة")}
+  URL.revokeObjectURL(url);
+ };
+ image.onerror=function(){URL.revokeObjectURL(url);alertMsg("تعذر فتح الصورة")};
+ image.src=url;
+}
+document.addEventListener("click",function(e){
+ var b=e.target.closest("button");if(!b)return;
+ if(b.dataset.add){var p=seed.find(function(x){return x.id===b.dataset.add});if(!p)return;cart[p.id]=Math.min(p.stock,(cart[p.id]||0)+1);render();alertMsg("تمت إضافة "+p.name+" إلى السلة")}
+ if(b.dataset.minus){cart[b.dataset.minus]--;if(!cart[b.dataset.minus])delete cart[b.dataset.minus];render()}
+ if(b.dataset.photo){selectedId=b.dataset.photo;el("picker").click()}
+ if(b.dataset.remove){delete pics[b.dataset.remove];savePics();render()}
+});
+el("picker").addEventListener("change",function(e){upload(e.target.files[0]);e.target.value=""});
+el("tabPos").onclick=function(){tab("pos")};el("tabStock").onclick=function(){tab("stock")};
+el("searchPos").oninput=render;el("searchStock").oninput=render;
+el("clear").onclick=function(){cart={};render()};
+el("checkout").onclick=function(){alertMsg("هذه تجربة تصميم فقط — لم يتم حفظ فاتورة حقيقية.")};
+el("reset").onclick=function(){if(!confirm("مسح الصور والسلة في صفحة التجربة فقط؟"))return;pics={};cart={};savePics();render();alertMsg("تمت إعادة ضبط التجربة")};
+render();
+</script></body></html>
