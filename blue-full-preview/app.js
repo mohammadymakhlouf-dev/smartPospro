@@ -15,6 +15,17 @@ let backupTimer=null,processing=false,toastTimer=null,backupRunning=false;
 let backupSessionStart=Date.now();
 let saveQueue=Promise.resolve();
 let pendingProductPhoto="";
+const DRIVE_BIND_PREFIX="smartpos-blue-demo-drive-bound-";
+let activeDriveIdentity=null;
+function linkedDrive(){
+ const raw=localStorage.getItem(DRIVE_BIND_PREFIX+(app.user?.sub||""));
+ if(!raw)return null;
+ try{const r=JSON.parse(raw);if(r?.sub)return r}catch(e){}
+ return {sub:raw,email:"",legacy:true};
+}
+function driveConnectedForCurrent(){const b=linkedDrive();return Boolean(b&&activeDriveIdentity?.owner===app.user?.sub&&activeDriveIdentity?.sub===b.sub&&DriveAuth.connected())}
+function dropDriveSession(){activeDriveIdentity=null;DriveAuth.logout()}
+
 
 const LOCAL_USERS_KEY="smartpos-blue-demo-local-users-v1";
 const STAY_KEY="smartpos-blue-demo-stay-v1";
@@ -151,7 +162,8 @@ function backupStatusText(){
  const p=backupPrefs();
  if(!p.enabled)return "النسخ التلقائي متوقف";
  if(!navigator.onLine)return "بانتظار عودة الإنترنت";
- if(!DriveAuth.connected())return "يلزم اتصال Google Drive أو تجديد الجلسة";
+ if(!linkedDrive())return "اربط Gmail بهذا المستخدم أولًا";
+ if(!driveConnectedForCurrent())return "Gmail مرتبط، لكن يلزم تجديد اتصال Google في هذه الجلسة";
  if(!app.data)return "بانتظار بيانات المنشأة";
  if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return "البيانات الحالية محفوظة على Google Drive";
  return "سيتم النسخ بعد انتهاء المدة المحددة أثناء فتح التطبيق";
@@ -160,7 +172,7 @@ function scheduleBackup(){
  clearTimeout(backupTimer);backupTimer=null;
  if(!app.user||!app.data)return;
  const p=backupPrefs();
- if(!p.enabled||!navigator.onLine||!DriveAuth.connected())return;
+ if(!p.enabled||!navigator.onLine||!driveConnectedForCurrent())return;
  if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return;
  const interval=p.minutes*60000;
  const start=p.lastSuccess||backupSessionStart;
@@ -169,7 +181,7 @@ function scheduleBackup(){
  backupTimer=setTimeout(async()=>{
   backupTimer=null;
   if(document.visibilityState==="hidden"){return;}
-  if(!app.user||!app.data||!navigator.onLine||!DriveAuth.connected())return;
+  if(!app.user||!app.data||!navigator.onLine||!driveConnectedForCurrent())return;
   await cloudBackup(false);
  },Math.min(wait,2147483647));
 }
@@ -193,6 +205,7 @@ function setViews(view){
  $("shell").classList.toggle("hidden",view!=="shell");
 }
 async function enter(user){
+ if(app.user?.sub!==user.sub&&DriveAuth.connected())dropDriveSession();
  app.user=user;
  backupSessionStart=Date.now();
  localStorage.setItem("smartpos-blue-demo-last-user",JSON.stringify(user));
@@ -226,7 +239,7 @@ async function setup(e){
 function logout(){
  closeBarcodeCamera();
  if(!confirm("تسجيل الخروج؟ ستبقى البيانات المحلية محفوظة على هذا الجهاز."))return;
- DriveAuth.logout();localStorage.removeItem(STAY_KEY);clearTimeout(backupTimer);backupTimer=null;
+ dropDriveSession();localStorage.removeItem(STAY_KEY);clearTimeout(backupTimer);backupTimer=null;
  app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
  setViews("signin");notify("تم تسجيل الخروج");
 }
@@ -576,15 +589,16 @@ function reports(){
  '<p class="muted">الربح تقديري قبل المصاريف والضرائب. يتم احتساب تكلفة البضاعة وفق السعر المحفوظ وقت البيع.</p>';
 }
 function settings(){
- const cloud=DriveAuth.connected(),p=backupPrefs();
+ const cloud=driveConnectedForCurrent(),p=backupPrefs(),linked=linkedDrive();
  const users=getLocalUsers(),hasLocal=Object.values(users).some(u=>u.sub===app.user.sub);
  const intervals=[[5,"كل 5 دقائق"],[15,"كل 15 دقيقة"],[30,"كل 30 دقيقة"],[60,"كل ساعة"],[180,"كل 3 ساعات"],[360,"كل 6 ساعات"],[720,"كل 12 ساعة"],[1440,"كل 24 ساعة"]];
  const last=p.lastSuccess?when(new Date(p.lastSuccess).toISOString()):"لم تكتمل أي نسخة بعد";
  $("content").innerHTML='<div class="card"><h2>المنشأة والحساب</h2><p><b>المحل:</b> '+esc(app.data.business)+'</p><p><b>حساب الدخول:</b> '+esc(app.user.name||"محلي")+'</p><p><b>العملة:</b> '+esc(app.data.currency)+'</p><p><b>نوع النشاط:</b> '+esc(app.data.activity)+'</p><button data-action="logout">تسجيل الخروج</button></div>'+
  (hasLocal?'':'<div class="card"><h2>تفعيل الدخول باسم مستخدم</h2><p class="muted">يمكنك إنشاء اسم مستخدم وكلمة مرور لهذا المحل، وسيبقى مرتبطًا بنفس بياناته على هذا الجهاز.</p><form id="attachLocalForm"><label>اسم المستخدم<input id="attachUsername" required autocomplete="username" pattern="[a-zA-Z0-9_.-]{3,32}"></label><label>كلمة المرور<input id="attachPassword" required type="password" minlength="8" autocomplete="new-password"></label><button class="primary" type="submit">تفعيل الدخول المحلي لهذا المحل</button></form></div>')+
- '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">النسخ تحفظ داخل مساحة التطبيق المخفية في Drive الخاص بهذا الحساب. ليست مزامنة آنية بين أجهزة مختلفة.</p>'+
+ '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">كل مستخدم يربط Gmail مستقلًا، ويمكن استخدام Gmail نفسه لأكثر من مستخدم دون استبدال نسخهم.</p>'+
+ '<p><b>Gmail المرتبط:</b> '+(linked?esc(linked.email||"مرتبط سابقًا — جدد الاتصال لعرض البريد"):"غير مرتبط")+'</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
- '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
+ '<div class="actions"><button class="primary" data-action="connect-drive">'+(linked?"تجديد اتصال Gmail":"ربط Gmail")+'</button>'+(linked?'<button data-action="change-drive-account">تغيير Gmail المرتبط</button>':"")+'<button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
  '<hr><h2>النسخ الاحتياطي التلقائي</h2>'+
  '<label class="backup-toggle"><input id="autoBackupEnabled" type="checkbox" '+(p.enabled?"checked":"")+'> تفعيل النسخ الاحتياطي التلقائي إلى Google Drive</label>'+
  '<label>المدة الزمنية بين النسخ<select id="autoBackupMinutes" '+(!p.enabled?"disabled":"")+'>'+intervals.map(([m,label])=>'<option value="'+m+'" '+(p.minutes===m?"selected":"")+'>'+label+'</option>').join("")+'</select></label>'+
@@ -627,7 +641,7 @@ async function importJSON(){
 async function cloudBackup(manual=true){
  if(backupRunning){if(manual)notify("هناك عملية نسخ احتياطي جارية");return}
  if(!app.user||!app.data)return;
- if(!DriveAuth.connected()){if(manual)notify("سجّل الدخول بحساب Google أولًا");return}
+ if(!driveConnectedForCurrent()){if(manual)notify("جدد اتصال Gmail لهذا المستخدم من الإعدادات");return}
  if(!navigator.onLine){if(manual)notify("الإنترنت غير متاح");return}
  const owner=app.user.sub,preference=backupPrefs();
  if(!manual&&(!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
@@ -637,6 +651,7 @@ async function cloudBackup(manual=true){
  try{
   await saveQueue;
   const snapshot=buildSnapshot();
+  if(!driveConnectedForCurrent())throw Error("جلسة Gmail ليست لهذا المستخدم");
   await DriveAuth.upload(snapshot);
   if(app.user?.sub===owner){
    const p=backupPrefs();
@@ -657,29 +672,29 @@ async function cloudBackup(manual=true){
  }
 }
 async function cloudRestore(){
- if(!DriveAuth.connected())return notify("سجّل الدخول بحساب Google أولًا");
+ if(!driveConnectedForCurrent())return notify("جدد اتصال Gmail من الإعدادات أولًا");
  try{
-  const raw=await DriveAuth.download();
+  const raw=await DriveAuth.download(app.user.sub);
   if(!raw)return notify("لا توجد نسخة محفوظة في Google Drive");
   const data=validBackup(raw);
   if(!confirm("تحذير: ستستبدل جميع بيانات هذا الجهاز بنسخة Google Drive. أنشئ نسخة محلية أولًا. متابعة؟"))return;
   await commit(data);app.cart=[];goto("dashboard");notify("تمت استعادة البيانات من Google Drive");
  }catch(e){notify("تعذرت الاستعادة: "+e.message)}
 }
-async function connectDrive(){
+async function connectDrive(change=false){
+ const owner=app.user?.sub;if(!owner)return notify("سجل الدخول أولًا");
+ const previous=linkedDrive();
+ if(change&&previous&&!confirm("تغيير Gmail لا ينقل النسخ القديمة تلقائيًا. متابعة؟"))return;
  try{
+  dropDriveSession();
   const user=await DriveAuth.authenticate();
-  const bindKey="smartpos-blue-demo-drive-bound-"+app.user.sub;
-  const previouslyBound=localStorage.getItem(bindKey);
-  if(!app.user.sub.startsWith("local:")&&user.sub!==app.user.sub){
-   DriveAuth.logout();throw Error("اختر حساب Google الأصلي المرتبط ببيانات هذا المحل.");
-  }
-  if(previouslyBound&&previouslyBound!==user.sub){
-   DriveAuth.logout();throw Error("هذا المحل مرتبط بحساب Google Drive آخر. لحماية النسخ السابقة لن نربطه بحساب مختلف دون نقل صريح.");
-  }
-  localStorage.setItem(bindKey,user.sub);
-  scheduleBackup();notify("تم ربط Google Drive بالحساب "+user.email);settings();
- }catch(e){notify(e.message)}
+  if(app.user?.sub!==owner){dropDriveSession();throw Error("تغير المستخدم أثناء الربط")}
+  if(!change&&previous&&previous.sub!==user.sub){dropDriveSession();throw Error("اختر Gmail المرتبط سابقًا، أو استخدم زر تغيير Gmail")}
+  if(!change&&!owner.startsWith("local:")&&!previous&&user.sub!==owner){dropDriveSession();throw Error("اختر حساب Google الأصلي لهذا المحل")}
+  localStorage.setItem(DRIVE_BIND_PREFIX+owner,JSON.stringify({sub:user.sub,email:user.email,updatedAt:new Date().toISOString()}));
+  activeDriveIdentity={sub:user.sub,email:user.email,owner};
+  scheduleBackup();notify("تم ربط Gmail: "+user.email);settings();
+ }catch(e){notify("فشل اتصال Gmail: "+e.message);if(app.page==="settings")settings()}
 }
 async function perform(action,target){
  switch(action){
@@ -692,7 +707,7 @@ async function perform(action,target){
   case "clear-cart":if(!app.cart.length||confirm("تفريغ السلة؟")){app.cart=[];app.discount=0;pos()}return;
   case "checkout":return checkout();case "invoice":return showInvoice(target.dataset.id);
   case "print":return window.print();case "logout":return logout();
-  case "connect-drive":return connectDrive();case "backup-drive":return cloudBackup();
+  case "connect-drive":return connectDrive();case "change-drive-account":return connectDrive(true);case "backup-drive":return cloudBackup();
   case "restore-drive":return cloudRestore();case "export":return exportJSON();
   case "import":return importJSON();
  }
