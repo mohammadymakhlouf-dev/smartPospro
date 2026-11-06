@@ -56,8 +56,18 @@ const DriveAuth=(()=>{
   return resp.json();
  };
  const download=async(ownerSub)=>{
-  const file=await find(ownerSub);
-  if(!file)return null;
+  let file=await find(ownerSub);
+  if(!file){
+   // Read-only compatibility with the old blue preview's shared filename.
+   const q=new URLSearchParams({spaces:"appDataFolder",q:"name = 'smartpos-pro-blue-design-demo-backup.json' and trashed = false",fields:"files(id,name,modifiedTime)",page_size:"100"});
+   const resp=await api(DRIVE_API+"/files?"+q.toString());
+   const list=(await resp.json()).files||[];
+   file=list.sort((a,b)=>new Date(b.modifiedTime)-new Date(a.modifiedTime))[0]||null;
+   if(!file)return null;
+   const legacy=await (await api(DRIVE_API+"/files/"+encodeURIComponent(file.id)+"?alt=media")).json();
+   if(legacy?.ownerSub!==ownerSub)throw Error("النسخة القديمة تخص مستخدمًا آخر. لا يمكن استعادتها لهذا الحساب.");
+   return legacy;
+  }
   return (await api(DRIVE_API+"/files/"+encodeURIComponent(file.id)+"?alt=media")).json();
  };
  const logout=()=>{
