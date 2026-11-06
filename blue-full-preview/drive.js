@@ -3,7 +3,8 @@
    The app never receives a Google password or stores OAuth tokens. */
 const GOOGLE_CLIENT_ID="1029534963788-hnptlafpi4ion4m2ubhsk982sih2m5l1.apps.googleusercontent.com";
 const GOOGLE_SCOPE="openid email profile https://www.googleapis.com/auth/drive.appdata";
-const DRIVE_NAME="smartpos-pro-blue-design-demo-backup.json";
+const DRIVE_PREFIX="smartpos-blue-demo-user-";
+const backupFileName=ownerSub=>DRIVE_PREFIX+Array.from(new TextEncoder().encode(String(ownerSub)),b=>b.toString(16).padStart(2,"0")).join("")+".json";
 const DRIVE_API="https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD="https://www.googleapis.com/upload/drive/v3/files";
 const DriveAuth=(()=>{
@@ -36,23 +37,26 @@ const DriveAuth=(()=>{
   client.error_callback=err=>reject(Error(err?.message||err?.type||"أُغلقت نافذة Google"));
   try{client.requestAccessToken({prompt:"consent"});}catch(e){reject(e)}
  });
- const find=async()=>{
-  const qs=new URLSearchParams({spaces:"appDataFolder",q:"name = '"+DRIVE_NAME+"' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime)",page_size:"100"});
+ const find=async(ownerSub)=>{
+  if(!ownerSub)throw Error('حساب النسخ الاحتياطي غير محدد');
+  const filename=backupFileName(ownerSub);
+  const qs=new URLSearchParams({spaces:"appDataFolder",q:"name = '"+filename+"' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime)",page_size:"100"});
   const r=await api(DRIVE_API+"/files?"+qs.toString());
   const d=await r.json();
   return (d.files||[]).sort((a,b)=>new Date(b.modifiedTime)-new Date(a.modifiedTime))[0]||null;
  };
  const upload=async(snapshot)=>{
-  const existing=await find();
-  const metadata=existing?{name:DRIVE_NAME}:{name:DRIVE_NAME,parents:["appDataFolder"],mimeType:"application/json"};
+  const filename=backupFileName(snapshot?.ownerSub);
+  const existing=await find(snapshot?.ownerSub);
+  const metadata=existing?{name:filename}:{name:filename,parents:["appDataFolder"],mimeType:"application/json"};
   const boundary="smartpos_"+crypto.randomUUID();
   const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n",JSON.stringify(metadata),"\r\n--"+boundary+"\r\nContent-Type: application/json\r\n\r\n",JSON.stringify(snapshot),"\r\n--"+boundary+"--"]);
   const url=existing?DRIVE_UPLOAD+"/"+encodeURIComponent(existing.id)+"?uploadType=multipart":DRIVE_UPLOAD+"?uploadType=multipart";
   const resp=await api(url,{method:existing?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+boundary},body});
   return resp.json();
  };
- const download=async()=>{
-  const file=await find();
+ const download=async(ownerSub)=>{
+  const file=await find(ownerSub);
   if(!file)return null;
   return (await api(DRIVE_API+"/files/"+encodeURIComponent(file.id)+"?alt=media")).json();
  };
