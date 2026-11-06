@@ -213,7 +213,7 @@ async function login(){
 }
 async function offlineLogin(){
  const cached=JSON.parse(localStorage.getItem("smartpos-blue-demo-last-user")||"null");
- if(!cached?.sub)return notify("يلزم تسجيل الدخول عبر Google مرة واحدة أولًا");
+ if(!cached?.sub||Object.values(getLocalUsers()).some(u=>u.sub===cached.sub))return notify("لأمان الحساب، يرجى الدخول باسم المستخدم وكلمة المرور");
  try{if(!await readLocal(cached.sub))return notify("لا توجد بيانات محفوظة لهذا الحساب على الجهاز");
   await enter({...cached,offline:true});
   notify("وضع دون إنترنت: لا يمكن التحقق من هوية المستخدم. لا تستخدمه على جهاز مشترك.");
