@@ -212,12 +212,7 @@ async function login(){
  finally{$("btnGoogle").disabled=false}
 }
 async function offlineLogin(){
- const cached=JSON.parse(localStorage.getItem("smartpos-blue-demo-last-user")||"null");
- if(!cached?.sub||Object.values(getLocalUsers()).some(u=>u.sub===cached.sub))return notify("لأمان الحساب، يرجى الدخول باسم المستخدم وكلمة المرور");
- try{if(!await readLocal(cached.sub))return notify("لا توجد بيانات محفوظة لهذا الحساب على الجهاز");
-  await enter({...cached,offline:true});
-  notify("وضع دون إنترنت: لا يمكن التحقق من هوية المستخدم. لا تستخدمه على جهاز مشترك.");
- }catch(e){notify(e.message)}
+ notify("لأمان الحساب، الدخول القديم دون كلمة مرور معطّل. استخدم اسم المستخدم وكلمة المرور، أو دخول Google القديم للانتقال.");
 }
 async function setup(e){
  e.preventDefault();
@@ -713,7 +708,7 @@ function boot(){
  $("menu").onclick=e=>{const btn=e.target.closest("[data-page]");if(btn)goto(btn.dataset.page)};
  $("content").onclick=e=>{const btn=e.target.closest("[data-action]");if(btn)perform(btn.dataset.action,btn)};
  const cached=localStorage.getItem("smartpos-blue-demo-last-user");
- $("offlineArea").classList.toggle("hidden",!cached);
+ $("offlineArea").classList.add("hidden");
  window.addEventListener("online",()=>{localStatus();scheduleBackup()});
  window.addEventListener("offline",()=>{localStatus();clearTimeout(backupTimer);backupTimer=null});
  localStatus();setViews("signin");
