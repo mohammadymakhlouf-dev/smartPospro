@@ -702,13 +702,10 @@ function boot(){
  $("formLocalLogin").onsubmit=localLogin;
  $("formLocalRegister").onsubmit=localRegister;
  $("toggleRegister").onclick=toggleLocalRegister;
- $("btnOffline").onclick=offlineLogin;
  $("formSetup").onsubmit=setup;
  $("newSale").addEventListener("click",e=>{e.preventDefault();goto("pos")});
  $("menu").onclick=e=>{const btn=e.target.closest("[data-page]");if(btn)goto(btn.dataset.page)};
  $("content").onclick=e=>{const btn=e.target.closest("[data-action]");if(btn)perform(btn.dataset.action,btn)};
- const cached=localStorage.getItem("smartpos-blue-demo-last-user");
- $("offlineArea").classList.add("hidden");
  window.addEventListener("online",()=>{localStatus();scheduleBackup()});
  window.addEventListener("offline",()=>{localStatus();clearTimeout(backupTimer);backupTimer=null});
  localStatus();setViews("signin");
