@@ -16,6 +16,75 @@ let backupSessionStart=Date.now();
 let saveQueue=Promise.resolve();
 let pendingProductPhoto="";
 
+const LOCAL_USERS_KEY="smartpos-blue-demo-local-users-v1";
+const STAY_KEY="smartpos-blue-demo-stay-v1";
+function getLocalUsers(){try{return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY)||"{}")||{}}catch(_){return {}}}
+function bytesToHex(bytes){return Array.from(bytes,x=>x.toString(16).padStart(2,"0")).join("")}
+async function passwordHash(password,salt){
+ if(!crypto?.subtle)throw Error("تسجيل الدخول المحلي يتطلب HTTPS ومتصفحًا حديثًا");
+ const text=new TextEncoder();
+ const key=await crypto.subtle.importKey("raw",text.encode(password),"PBKDF2",false,["deriveBits"]);
+ const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt:text.encode(salt),iterations:180000,hash:"SHA-256"},key,256);
+ return bytesToHex(new Uint8Array(bits));
+}
+function usernameValue(raw){return String(raw||"").trim().toLowerCase()}
+async function saveLocalCredentials(username,password,owner){
+ const name=usernameValue(username);
+ if(!/^[a-z0-9_.-]{3,32}$/.test(name))throw Error("اسم المستخدم: من 3 إلى 32 حرفًا إنجليزيًا أو رقمًا");
+ if(password.length<8)throw Error("كلمة المرور يجب أن تتكون من 8 أحرف على الأقل");
+ const users=getLocalUsers();
+ if(users[name]&&users[name].sub!==owner.sub)throw Error("اسم المستخدم مستخدم على هذا الجهاز");
+ const salt=bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+ users[name]={sub:owner.sub,name:owner.name||name,email:owner.email||"",salt,hash:await passwordHash(password,salt)};
+ localStorage.setItem(LOCAL_USERS_KEY,JSON.stringify(users));
+ return name;
+}
+function rememberedSession(){
+ try{const x=JSON.parse(localStorage.getItem(STAY_KEY)||"null");if(x&&getLocalUsers()[x.username]?.sub===x.sub)return x}catch(_){}
+ return null;
+}
+async function localLogin(e){
+ e.preventDefault();
+ const username=usernameValue($("localUsername").value),password=$("localPassword").value,users=getLocalUsers(),record=users[username];
+ if(!record)return notify("اسم المستخدم أو كلمة المرور غير صحيحة");
+ const button=$("btnLocalLogin");button.disabled=true;
+ try{
+  const digest=await passwordHash(password,record.salt);
+  if(digest.length!==record.hash.length||![...digest].every((x,i)=>x===record.hash[i]))throw Error("اسم المستخدم أو كلمة المرور غير صحيحة");
+  if($("rememberDevice").checked)localStorage.setItem(STAY_KEY,JSON.stringify({username,sub:record.sub}));
+  else localStorage.removeItem(STAY_KEY);
+  await enter({sub:record.sub,name:record.name,email:record.email||"",local:true});
+  notify("تم تسجيل الدخول بنجاح");
+ }catch(err){notify(err.message)}finally{button.disabled=false}
+}
+async function localRegister(e){
+ e.preventDefault();
+ const username=usernameValue($("registerUsername").value),password=$("registerPassword").value;
+ if(!username||!password)return notify("أدخل اسم المستخدم وكلمة المرور");
+ if(getLocalUsers()[username])return notify("اسم المستخدم مستخدم بالفعل على هذا الجهاز");
+ const owner={sub:"local:"+crypto.randomUUID(),name:username,email:"",local:true};
+ const button=$("btnRegister");button.disabled=true;
+ try{
+  await saveLocalCredentials(username,password,owner);
+  localStorage.setItem(STAY_KEY,JSON.stringify({username,sub:owner.sub}));
+  await enter(owner);
+  notify("تم إنشاء الحساب المحلي. احفظ بيانات الدخول في مكان آمن");
+ }catch(err){notify(err.message)}finally{button.disabled=false}
+}
+async function attachLocalLogin(e){
+ e.preventDefault();
+ const username=$("attachUsername").value,password=$("attachPassword").value;
+ try{
+  const name=await saveLocalCredentials(username,password,app.user);
+  localStorage.setItem(STAY_KEY,JSON.stringify({username:name,sub:app.user.sub}));
+  app.user.local=true;
+  notify("تم تفعيل الدخول المحلي. يمكنك الآن الدخول دون Google");
+  settings();
+ }catch(err){notify(err.message)}
+}
+function toggleLocalRegister(){ $("registerArea").classList.toggle("hidden"); }
+
+
 
 function notify(message){
  const t=$("toast");t.textContent=message;t.classList.remove("hidden");
@@ -162,7 +231,7 @@ async function setup(e){
 function logout(){
  closeBarcodeCamera();
  if(!confirm("تسجيل الخروج؟ ستبقى البيانات المحلية محفوظة على هذا الجهاز."))return;
- DriveAuth.logout();clearTimeout(backupTimer);backupTimer=null;
+ DriveAuth.logout();localStorage.removeItem(STAY_KEY);clearTimeout(backupTimer);backupTimer=null;
  app={user:null,data:null,page:"dashboard",cart:[],productSearch:"",posSearch:"",discount:0,payment:"cash",customer:""};
  setViews("signin");notify("تم تسجيل الخروج");
 }
@@ -513,9 +582,11 @@ function reports(){
 }
 function settings(){
  const cloud=DriveAuth.connected(),p=backupPrefs();
+ const users=getLocalUsers(),hasLocal=Object.values(users).some(u=>u.sub===app.user.sub);
  const intervals=[[5,"كل 5 دقائق"],[15,"كل 15 دقيقة"],[30,"كل 30 دقيقة"],[60,"كل ساعة"],[180,"كل 3 ساعات"],[360,"كل 6 ساعات"],[720,"كل 12 ساعة"],[1440,"كل 24 ساعة"]];
  const last=p.lastSuccess?when(new Date(p.lastSuccess).toISOString()):"لم تكتمل أي نسخة بعد";
- $("content").innerHTML='<div class="card"><h2>المنشأة والحساب</h2><p><b>المحل:</b> '+esc(app.data.business)+'</p><p><b>حساب Google:</b> '+esc(app.user.email)+'</p><p><b>العملة:</b> '+esc(app.data.currency)+'</p><p><b>نوع النشاط:</b> '+esc(app.data.activity)+'</p><button data-action="logout">تسجيل الخروج</button></div>'+
+ $("content").innerHTML='<div class="card"><h2>المنشأة والحساب</h2><p><b>المحل:</b> '+esc(app.data.business)+'</p><p><b>حساب الدخول:</b> '+esc(app.user.name||"محلي")+'</p><p><b>العملة:</b> '+esc(app.data.currency)+'</p><p><b>نوع النشاط:</b> '+esc(app.data.activity)+'</p><button data-action="logout">تسجيل الخروج</button></div>'+
+ (hasLocal?'':'<div class="card"><h2>تفعيل الدخول باسم مستخدم</h2><p class="muted">يمكنك إنشاء اسم مستخدم وكلمة مرور لهذا المحل، وسيبقى مرتبطًا بنفس بياناته على هذا الجهاز.</p><form id="attachLocalForm"><label>اسم المستخدم<input id="attachUsername" required autocomplete="username" pattern="[a-zA-Z0-9_.-]{3,32}"></label><label>كلمة المرور<input id="attachPassword" required type="password" minlength="8" autocomplete="new-password"></label><button class="primary" type="submit">تفعيل الدخول المحلي لهذا المحل</button></form></div>')+
  '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">النسخ تحفظ داخل مساحة التطبيق المخفية في Drive الخاص بهذا الحساب. ليست مزامنة آنية بين أجهزة مختلفة.</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
  '<div class="actions"><button class="primary" data-action="connect-drive">تسجيل الدخول / تجديد الجلسة</button><button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
@@ -528,6 +599,7 @@ function settings(){
  '<p class="notice">يعمل النسخ التلقائي فقط عندما يكون التطبيق مفتوحًا ويعمل، والإنترنت متوفرًا، وجلسة Google Drive صالحة. لا يمكن ضمان النسخ عند إغلاق التطبيق أو قفل الهاتف. يُرفع ملف جديد عند وجود تغييرات؛ والنسخ التلقائي يستبدل النسخة السحابية السابقة، ولا يحتفظ بإصدارات متعددة.</p>'+
  '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. لا تستخدم النسخ التلقائي على جهازين لنفس المحل، لأنها ليست مزامنة آنية.</p></div>'+
  '<div class="card"><h2>نسخة احتياطية محلية</h2><div class="actions"><button data-action="export">تحميل نسخة JSON</button><label style="margin:0">اختيار نسخة للاستعادة<input type="file" id="importFile" accept="application/json,.json"></label><button data-action="import">استعادة النسخة</button></div><p class="muted">ملف JSON غير مشفر. احفظه في مكان آمن ولا تشاركه.</p></div>';
+ if($("attachLocalForm"))$("attachLocalForm").onsubmit=attachLocalLogin;
  $("autoBackupEnabled").onchange=updateBackupSettings;
  $("autoBackupMinutes").onchange=updateBackupSettings;
 }
@@ -602,9 +674,16 @@ async function cloudRestore(){
 async function connectDrive(){
  try{
   const user=await DriveAuth.authenticate();
-  if(user.sub!==app.user.sub){DriveAuth.logout();throw Error("حساب Google مختلف عن حساب صاحب المحل. سجّل الخروج ثم افتح حساب المحل المناسب.")}
-  app.user={...user};localStorage.setItem("smartpos-blue-demo-last-user",JSON.stringify(user));
-  scheduleBackup();notify("تم الاتصال بحساب "+user.email);settings();
+  const bindKey="smartpos-blue-demo-drive-bound-"+app.user.sub;
+  const previouslyBound=localStorage.getItem(bindKey);
+  if(!app.user.sub.startsWith("local:")&&user.sub!==app.user.sub){
+   DriveAuth.logout();throw Error("اختر حساب Google الأصلي المرتبط ببيانات هذا المحل.");
+  }
+  if(previouslyBound&&previouslyBound!==user.sub){
+   DriveAuth.logout();throw Error("هذا المحل مرتبط بحساب Google Drive آخر. لحماية النسخ السابقة لن نربطه بحساب مختلف دون نقل صريح.");
+  }
+  localStorage.setItem(bindKey,user.sub);
+  scheduleBackup();notify("تم ربط Google Drive بالحساب "+user.email);settings();
  }catch(e){notify(e.message)}
 }
 async function perform(action,target){
@@ -625,6 +704,9 @@ async function perform(action,target){
 }
 function boot(){
  $("btnGoogle").onclick=login;
+ $("formLocalLogin").onsubmit=localLogin;
+ $("formLocalRegister").onsubmit=localRegister;
+ $("toggleRegister").onclick=toggleLocalRegister;
  $("btnOffline").onclick=offlineLogin;
  $("formSetup").onsubmit=setup;
  $("newSale").addEventListener("click",e=>{e.preventDefault();goto("pos")});
@@ -635,6 +717,8 @@ function boot(){
  window.addEventListener("online",()=>{localStatus();scheduleBackup()});
  window.addEventListener("offline",()=>{localStatus();clearTimeout(backupTimer);backupTimer=null});
  localStatus();setViews("signin");
+ const session=rememberedSession();
+ if(session){const record=getLocalUsers()[session.username];enter({sub:record.sub,name:record.name,email:record.email||"",local:true}).catch(e=>{localStorage.removeItem(STAY_KEY);setViews("signin");notify("تعذر استعادة الجلسة: "+e.message)})}
  document.addEventListener("visibilitychange",()=>{if(document.hidden)closeBarcodeCamera();else scheduleBackup()});
  if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(e=>console.warn("PWA:",e));
 }
