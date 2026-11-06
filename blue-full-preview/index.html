@@ -5,17 +5,29 @@
 <title>SmartPOS Pro — تجربة التصميم الكامل</title>
 <link rel="icon" href="../icon.svg" type="image/svg+xml">
 <link rel="manifest" href="./manifest.webmanifest">
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=2">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../vendor/html5-qrcode.min.js" defer></script>
 <script src="../vendor/JsBarcode.all.min.js" defer></script>
-<script src="./drive.js" defer></script><script src="./app.js" defer></script>
+<script src="./drive.js" defer></script><script src="./app.js?v=2" defer></script>
 </head><body>
 <div id="signin" class="setup card"><div class="logo dark">▣ SmartPOS <b>Pro</b></div>
-<h1>تجربة التصميم الأزرق الكامل</h1><p class="muted">تجربة مستقلة؛ بياناتها المحلية منفصلة عن البرنامج الأساسي.</p>
-<button id="btnGoogle" class="primary wide">تسجيل الدخول باستخدام Google</button>
-<div id="offlineArea" class="hidden"><hr><p class="muted">يمكن متابعة استخدام بيانات تجربة سابقة دون إنترنت.</p><button id="btnOffline" class="wide">المتابعة دون اتصال</button></div>
-<p class="muted small">يُستخدم Google Drive لنسخة تجريبية مستقلة، وليس لبيانات البرنامج الأساسي.</p></div>
+<h1>مرحبًا بعودتك</h1><p class="muted">الدخول محليًا دون Gmail؛ يمكن ربط Google Drive لاحقًا من الإعدادات.</p>
+<form id="formLocalLogin" class="local-login-form">
+<label>اسم المستخدم<input id="localUsername" required autocapitalize="none" spellcheck="false" autocomplete="username" placeholder="اسم المستخدم"></label>
+<label>كلمة المرور<input id="localPassword" required type="password" autocomplete="current-password" placeholder="كلمة المرور"></label>
+<label class="remember-row"><input id="rememberDevice" type="checkbox" checked> البقاء مسجّلًا على هذا الجهاز</label>
+<button id="btnLocalLogin" class="primary wide" type="submit">دخول إلى البرنامج</button></form>
+<button id="toggleRegister" class="wide" type="button">+ إنشاء حساب محلي جديد</button>
+<div id="registerArea" class="hidden"><hr><form id="formLocalRegister">
+<h2>إنشاء حساب تجريبي</h2><label>اسم المستخدم<input id="registerUsername" autocapitalize="none" required pattern="[a-zA-Z0-9_.-]{3,32}" autocomplete="username"></label>
+<label>كلمة المرور (8 أحرف على الأقل)<input id="registerPassword" required type="password" minlength="8" autocomplete="new-password"></label>
+<button id="btnRegister" class="primary wide" type="submit">إنشاء الحساب وفتح البرنامج</button></form></div>
+<hr><p class="muted small">لديك بيانات تجربة قديمة دخلت إليها سابقًا من Google؟ ادخل مرة واحدة بحساب Google، ثم أنشئ اسم مستخدم من الإعدادات لنفس المحل.</p>
+<button id="btnGoogle" class="wide" type="button">دخول Google القديم لنقل الحساب المحلي</button>
+<div id="offlineArea" class="hidden"><p class="muted small">دخول الطوارئ القديم غير محمي بكلمة مرور، لذا يُستخدم على الأجهزة الشخصية فقط.</p>
+<button id="btnOffline" class="wide" type="button">دخول مؤقت للحساب القديم دون إنترنت</button></div>
+<p class="muted small">هذا نظام دخول محلي تجريبي على هذا الجهاز فقط، وليس نظام تراخيص أو حسابات سحابية محمية للبيع.</p></div>
 <div id="setup" class="setup card hidden"><div class="logo dark">▣ SmartPOS <b>Pro</b></div><h1>إعداد محل تجريبي</h1>
 <form id="formSetup"><label>اسم المنشأة<input required id="businessName" maxlength="100"></label>
 <label>طبيعة النشاط<select id="businessType"><option value="fashion">ملابس</option><option value="shoes">أحذية</option><option value="restaurant">مطعم ومقهى</option><option value="accessories">إكسسوارات</option><option value="market">سوبرماركت</option><option value="electronics">إلكترونيات</option><option value="general">تجارة عامة</option></select></label>
