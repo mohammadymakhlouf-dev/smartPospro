@@ -110,3 +110,11 @@ nav button.active,nav button:hover{background:#2578cd;color:#fff}
 @media(max-width:1000px){.inventory-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mobile-pos .product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.inventory-grid{gap:8px}.inventory-image{height:125px}.product-tile .product-image{height:125px}.product-tile .product-description{padding:10px}.inventory-body{padding:10px}.inventory-actions{flex-direction:column}.inventory-actions button{width:100%}.layout main>header{padding:14px}.layout main>header .row{width:100%}.layout main>header .row button{flex:1}.item-placeholder{font-size:43px}}
 @media print{.product-image,.inventory-grid{display:none!important}.receipt{display:block!important}}
+
+/* Local account sign-in, version 2 */
+.local-login-form{display:flex;flex-direction:column;gap:8px}
+.local-login-form label input:not([type="checkbox"]){width:100%}
+.remember-row{display:flex!important;align-items:center;gap:8px;text-align:right;cursor:pointer}
+.remember-row input{width:18px;height:18px;margin:0;flex:none}
+#signin .wide{margin-top:8px}
+#registerArea{margin:12px 0 0}
