@@ -88,6 +88,24 @@ const DriveAuth=(()=>{
   }while(pageToken&&files.length<5000);
   return files.sort((a,b)=>new Date(b.createdTime||b.modifiedTime)-new Date(a.createdTime||a.modifiedTime));
  };
+ const listRelatedHistory=async(username,owner)=>{
+  const normalized=String(username||"").trim().toLowerCase();
+  if(!normalized)return listHistory(owner);
+  let files=[],pageToken="";
+  do{
+   const params={spaces:"appDataFolder",q:"name contains 'smartpos-blue-history-' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",page_size:"1000"};
+   if(pageToken)params.pageToken=pageToken;
+   const response=await api(DRIVE_API+"/files?"+new URLSearchParams(params));
+   const result=await response.json();
+   files.push(...(result.files||[]).filter(f=>{
+    if(!f.name.startsWith(ARCHIVE_PREFIX))return false;
+    if(f.name.startsWith(archivePrefix(owner)))return true;
+    try{return JSON.parse(f.description||"{}").username===normalized}catch(e){return false}
+   }));
+   pageToken=result.nextPageToken||"";
+  }while(pageToken&&files.length<5000);
+  return files.sort((a,b)=>new Date(b.createdTime||b.modifiedTime)-new Date(a.createdTime||a.modifiedTime));
+ };
  const createHistory=async(snapshot,label,type="manual")=>{
   if(!snapshot?.ownerSub)throw Error("معرف المستخدم مفقود");
   const stamp=new Date().toISOString().replace(/[:.]/g,"-");
@@ -102,8 +120,8 @@ const DriveAuth=(()=>{
   const response=await api(DRIVE_UPLOAD+"?uploadType=multipart",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+boundary},body});
   return response.json();
  };
- const readHistory=async(fileId,owner)=>{
-  const history=await listHistory(owner);
+ const readHistory=async(fileId,owner,username)=>{
+  const history=await listRelatedHistory(username,owner);
   if(!history.some(x=>x.id===fileId))throw Error("هذه النسخة لا تخص المستخدم المحدد");
   return (await api(DRIVE_API+"/files/"+encodeURIComponent(fileId)+"?alt=media")).json();
  };
@@ -111,5 +129,5 @@ const DriveAuth=(()=>{
   const old=token;token="";expires=0;
   if(old&&ready())google.accounts.oauth2.revoke(old,()=>{});
  };
- return {authenticate,connected,upload,download,logout,ready,listHistory,createHistory,readHistory};
+ return {authenticate,connected,upload,download,logout,ready,listHistory,listRelatedHistory,createHistory,readHistory};
 })();
