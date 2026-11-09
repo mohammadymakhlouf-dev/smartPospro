@@ -140,6 +140,80 @@ async function commit(next){
  scheduleBackup();
 }
 const BACKUP_INTERVALS=[5,15,30,60,180,360,720,1440];
+
+const HISTORY_PROMPT_PREFIX="smartpos-blue-history-checked-";
+const HISTORY_PAUSE_PREFIX="smartpos-blue-history-pause-";
+function localUsername(){
+ const owner=app.user?.sub;
+ return Object.entries(getLocalUsers()).find(([name,u])=>u.sub===owner)?.[0]||"";
+}
+function historyPaused(){return localStorage.getItem(HISTORY_PAUSE_PREFIX+app.user?.sub)==="yes"}
+function historyPause(value){localStorage.setItem(HISTORY_PAUSE_PREFIX+app.user?.sub,value?"yes":"no")}
+function historyDisplayMeta(file){
+ try{return JSON.parse(file.description||"{}")}catch(e){return {}}
+}
+function historyDate(file){return file.createdTime||file.modifiedTime||""}
+function deviceHasData(){return !!(app.data?.products?.length||app.data?.sales?.length)}
+function historyRow(f){
+ const m=historyDisplayMeta(f),label=esc(m.label||"نسخة محفوظة");
+ const date=historyDate(f)?when(historyDate(f)):"تاريخ غير معروف";
+ const owner=String(m.username||"");
+ return '<div class="backup-row"><div><b>'+label+'</b><p class="muted small">'+esc(date)+' • '+(m.products||0)+' منتج • '+(m.sales||0)+' فاتورة'+(owner?' • '+esc(owner):'')+'</p></div><button type="button" class="primary" data-action="restore-history" data-id="'+esc(f.id)+'">استعادة</button></div>';
+}
+async function showHistory(notifyNewDevice=false){
+ const wrap=$("historyArea");
+ if(!wrap)return;
+ if(!driveConnectedForCurrent()){wrap.innerHTML='<p class="notice">اربط Gmail أو جدد التفويض لعرض سجل النسخ.</p>';return}
+ const owner=app.user.sub;
+ wrap.innerHTML='<p class="muted">جارٍ تحميل سجل النسخ من Google Drive...</p>';
+ try{
+  const list=await DriveAuth.listRelatedHistory(localUsername(),owner);
+  if(app.user?.sub!==owner||!$("historyArea"))return;
+  window.__smartposHistory=list;
+  const grouped=list.reduce((m,f)=>{const key=String(historyDate(f)).slice(0,10)||"unknown";(m[key]??=[]).push(f);return m},{});
+  const keys=Object.keys(grouped).sort().reverse();
+  $("historyArea").innerHTML=keys.length?keys.map(k=>'<div class="backup-day"><h3>'+esc(k)+'</h3>'+grouped[k].map(historyRow).join("")+'</div>').join(""):'<p class="muted">لا توجد نسخ مؤرخة لهذا المستخدم بعد. أنشئ أول نسخة الآن.</p>';
+  if(notifyNewDevice&&list.length&&!deviceHasData()){
+    historyPause(true);
+    alert("تنبيه جهاز جديد: توجد نسخ احتياطية محفوظة لهذا المستخدم. الجهاز الحالي فارغ. اختر نسخة لاستعادتها، أو اضغط متابعة دون استعادة. لن تُرفع نسخة تلقائية قبل اتخاذ القرار.");
+    $("newDeviceDecision").classList.remove("hidden");
+  }else if(notifyNewDevice){
+    historyPause(false);
+  }
+ }catch(e){
+  if($("historyArea"))$("historyArea").textContent="تعذر جلب سجل النسخ: "+e.message;
+ }
+}
+async function restoreHistory(fileId){
+ if(!driveConnectedForCurrent())return notify("جدد اتصال Gmail أولًا");
+ const current=window.__smartposHistory||[];
+ const selected=current.find(f=>f.id===fileId);
+ if(!selected)return notify("أعد تحميل السجل ثم حاول مرة أخرى");
+ const owner=app.user.sub,username=localUsername();
+ try{
+  const snapshot=await DriveAuth.readHistory(fileId,owner,username);
+  if(snapshot.ownerSub!==owner&&(!username||snapshot.ownerUsername!==username))throw Error("النسخة لا تطابق اسم المستخدم الحالي");
+  const data=validBackup(snapshot,snapshot.ownerSub!==owner);
+  if(!confirm("استعادة نسخة «"+(historyDisplayMeta(selected).label||"نسخة محفوظة")+"» بتاريخ "+historyDate(selected)+"؟ سيتم استبدال بيانات الجهاز الحالي، ولن تُحذف أي نسخة سحابية قديمة."))return;
+  if(deviceHasData()){
+   if(!confirm("لديك بيانات على هذا الجهاز. سنحفظ نسخة أمان منها على Drive أولًا. هل توافق؟"))return;
+   await saveQueue;
+   await DriveAuth.createHistory(buildSnapshot(),"نسخة أمان قبل الاستعادة","safety");
+  }
+  if(app.user.sub!==owner)throw Error("تغير المستخدم أثناء الاستعادة");
+  await commit(data);
+  historyPause(false);
+  app.cart=[];goto("dashboard");
+  notify("تمت استعادة النسخة. بقي سجل النسخ القديم محفوظًا.");
+ }catch(e){notify("تعذرت الاستعادة: "+e.message)}
+}
+async function continueEmptyDevice(){
+ if(!confirm("تريد البدء بالبيانات الموجودة على هذا الجهاز دون استعادة؟ لن تُحذف أي نسخة محفوظة على Drive."))return;
+ historyPause(false);
+ const panel=$("newDeviceDecision");if(panel)panel.classList.add("hidden");
+ scheduleBackup();
+ notify("تم اعتماد بيانات هذا الجهاز، والنسخ القديمة محفوظة.");
+}
 function backupKey(){
  return "smartpos-blue-demo-auto-backup-"+(app.user?.sub||"anonymous");
 }
@@ -172,7 +246,7 @@ function scheduleBackup(){
  clearTimeout(backupTimer);backupTimer=null;
  if(!app.user||!app.data)return;
  const p=backupPrefs();
- if(!p.enabled||!navigator.onLine||!driveConnectedForCurrent())return;
+ if(!p.enabled||historyPaused()||!navigator.onLine||!driveConnectedForCurrent())return;
  if(p.lastSuccess&&p.lastDataUpdatedAt===app.data.updatedAt)return;
  const interval=p.minutes*60000;
  const start=p.lastSuccess||backupSessionStart;
@@ -181,7 +255,7 @@ function scheduleBackup(){
  backupTimer=setTimeout(async()=>{
   backupTimer=null;
   if(document.visibilityState==="hidden"){return;}
-  if(!app.user||!app.data||!navigator.onLine||!driveConnectedForCurrent())return;
+  if(!app.user||!app.data||historyPaused()||!navigator.onLine||!driveConnectedForCurrent())return;
   await cloudBackup(false);
  },Math.min(wait,2147483647));
 }
@@ -599,22 +673,24 @@ function settings(){
  '<p><b>Gmail المرتبط:</b> '+(linked?esc(linked.email||"مرتبط سابقًا — جدد الاتصال لعرض البريد"):"غير مرتبط")+'</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
  '<div class="actions"><button class="primary" data-action="connect-drive">'+(linked?"تجديد اتصال Gmail":"ربط Gmail")+'</button>'+(linked?'<button data-action="change-drive-account">تغيير Gmail المرتبط</button>':"")+'<button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
+ '<div class="backup-history"><hr><h2>سجل النسخ بتاريخ واسم</h2><p class="muted">كل نسخة تُحفظ في ملف مستقل ولا تستبدل النسخ السابقة. تستطيع كتابة اسم مميز لنسختك اليدوية.</p><div class="actions"><input id="historyBackupName" maxlength="100" placeholder="اسم النسخة (مثال: قبل الجرد)"><button class="primary" data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة باسم جديد</button><button data-action="refresh-history" '+(!cloud?"disabled":"")+'>تحديث السجل</button></div><div id="newDeviceDecision" class="notice hidden"><b>هذا الجهاز فارغ وتوجد نسخ سابقة على Drive.</b><p>اختر نسخة لاستعادتها أو تابع ببيانات منفصلة. لن يتم رفع نسخة تلقائية حتى تختار.</p><button data-action="continue-empty-device">متابعة دون استعادة</button></div><div id="historyArea"><p class="muted">اضغط «تحديث السجل» لعرض النسخ المحفوظة.</p></div></div>'+
  '<hr><h2>النسخ الاحتياطي التلقائي</h2>'+
  '<label class="backup-toggle"><input id="autoBackupEnabled" type="checkbox" '+(p.enabled?"checked":"")+'> تفعيل النسخ الاحتياطي التلقائي إلى Google Drive</label>'+
  '<label>المدة الزمنية بين النسخ<select id="autoBackupMinutes" '+(!p.enabled?"disabled":"")+'>'+intervals.map(([m,label])=>'<option value="'+m+'" '+(p.minutes===m?"selected":"")+'>'+label+'</option>').join("")+'</select></label>'+
  '<p class="muted"><b>حالة النسخ:</b> '+esc(backupStatusText())+'</p>'+
  '<p class="muted"><b>آخر نسخة سحابية ناجحة من هذا الجهاز:</b> '+esc(last)+'</p>'+
  (p.lastError?'<p class="muted"><b>آخر خطأ:</b> '+esc(p.lastError)+'</p>':"")+
- '<p class="notice">يعمل النسخ التلقائي فقط عندما يكون التطبيق مفتوحًا ويعمل، والإنترنت متوفرًا، وجلسة Google Drive صالحة. لا يمكن ضمان النسخ عند إغلاق التطبيق أو قفل الهاتف. يُرفع ملف جديد عند وجود تغييرات؛ والنسخ التلقائي يستبدل النسخة السحابية السابقة، ولا يحتفظ بإصدارات متعددة.</p>'+
+ '<p class="notice">يعمل النسخ التلقائي فقط عندما يكون التطبيق مفتوحًا ويعمل، والإنترنت متوفرًا، وجلسة Google Drive صالحة. لا يمكن ضمان النسخ عند إغلاق التطبيق أو قفل الهاتف. يُرفع ملف جديد عند وجود تغييرات؛ وكل عملية نسخ ناجحة تنشئ ملفًا منفصلًا مع الوقت والتاريخ، ولا تكتب فوق نسخة سابقة.</p>'+
  '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. لا تستخدم النسخ التلقائي على جهازين لنفس المحل، لأنها ليست مزامنة آنية.</p></div>'+
  '<div class="card"><h2>نسخة احتياطية محلية</h2><div class="actions"><button data-action="export">تحميل نسخة JSON</button><label style="margin:0">اختيار نسخة للاستعادة<input type="file" id="importFile" accept="application/json,.json"></label><button data-action="import">استعادة النسخة</button></div><p class="muted">ملف JSON غير مشفر. احفظه في مكان آمن ولا تشاركه.</p></div>';
  if($("attachLocalForm"))$("attachLocalForm").onsubmit=attachLocalLogin;
+ if(cloud)showHistory(false);
  $("autoBackupEnabled").onchange=updateBackupSettings;
  $("autoBackupMinutes").onchange=updateBackupSettings;
 }
-function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerEmail:app.user.email,exportedAt:new Date().toISOString(),data:clone(app.data)}}
-function validBackup(backup){
- if(backup?.app!=="SmartPOS Pro"||backup?.schema!==1||backup.ownerSub!==app.user.sub||
+function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerUsername:localUsername(),ownerEmail:linkedDrive()?.email||app.user.email,exportedAt:new Date().toISOString(),data:clone(app.data)}}
+function validBackup(backup,allowMatchingUsername=false){
+ if(backup?.app!=="SmartPOS Pro"||backup?.schema!==1||!(backup.ownerSub===app.user.sub||(allowMatchingUsername&&localUsername()&&backup.ownerUsername===localUsername()))||
  !backup.data||!Array.isArray(backup.data.products)||!Array.isArray(backup.data.sales)||
  typeof backup.data.business!=="string"||!Number.isSafeInteger(backup.data.nextInvoice))
  throw Error("النسخة غير متوافقة مع حساب Google الحالي أو أن بياناتها غير صالحة");
@@ -644,7 +720,7 @@ async function cloudBackup(manual=true){
  if(!driveConnectedForCurrent()){if(manual)notify("جدد اتصال Gmail لهذا المستخدم من الإعدادات");return}
  if(!navigator.onLine){if(manual)notify("الإنترنت غير متاح");return}
  const owner=app.user.sub,preference=backupPrefs();
- if(!manual&&(!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
+ if(!manual&&(historyPaused()||!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
  backupRunning=true;
  preference.lastAttempt=Date.now();
  saveBackupPrefs(preference);
@@ -652,14 +728,18 @@ async function cloudBackup(manual=true){
   await saveQueue;
   const snapshot=buildSnapshot();
   if(!driveConnectedForCurrent())throw Error("جلسة Gmail ليست لهذا المستخدم");
-  await DriveAuth.upload(snapshot);
+  const manualLabel=$("historyBackupName")?.value.trim();
+  const label=manual?(manualLabel||"نسخة يدوية "+new Date().toLocaleString("ar")):"نسخة تلقائية "+new Date().toLocaleString("ar");
+  await DriveAuth.createHistory(snapshot,label,manual?"manual":"auto");
+  if(manual&&$("historyBackupName"))$("historyBackupName").value="";
+
   if(app.user?.sub===owner){
    const p=backupPrefs();
    p.lastSuccess=Date.now();p.lastDataUpdatedAt=snapshot.data.updatedAt;
    p.lastError="";
    saveBackupPrefs(p);
   }
-  if(manual)notify("تم رفع النسخة إلى Google Drive بنجاح");
+  if(manual)notify("تم حفظ نسخة مستقلة بتاريخ واسم بنجاح");
  }catch(e){
   if(app.user?.sub===owner){
    const p=backupPrefs();p.lastError=String(e.message||e).slice(0,180);saveBackupPrefs(p);
@@ -677,8 +757,9 @@ async function cloudRestore(){
   const raw=await DriveAuth.download(app.user.sub);
   if(!raw)return notify("لا توجد نسخة محفوظة في Google Drive");
   const data=validBackup(raw);
-  if(!confirm("تحذير: ستستبدل جميع بيانات هذا الجهاز بنسخة Google Drive. أنشئ نسخة محلية أولًا. متابعة؟"))return;
-  await commit(data);app.cart=[];goto("dashboard");notify("تمت استعادة البيانات من Google Drive");
+  if(!confirm("تحذير: ستستبدل جميع بيانات الجهاز بنسخة قديمة. اختر نسخة مؤرخة من سجل النسخ بدلًا من ذلك. متابعة؟"))return;
+  if(deviceHasData())await DriveAuth.createHistory(buildSnapshot(),"نسخة أمان قبل استعادة قديمة","safety");
+  await commit(data);historyPause(false);app.cart=[];goto("dashboard");notify("تمت الاستعادة مع الاحتفاظ بالنسخ السابقة");
  }catch(e){notify("تعذرت الاستعادة: "+e.message)}
 }
 async function connectDrive(change=false){
@@ -693,7 +774,12 @@ async function connectDrive(change=false){
   if(!change&&!owner.startsWith("local:")&&!previous&&user.sub!==owner){dropDriveSession();throw Error("اختر حساب Google الأصلي لهذا المحل")}
   localStorage.setItem(DRIVE_BIND_PREFIX+owner,JSON.stringify({sub:user.sub,email:user.email,updatedAt:new Date().toISOString()}));
   activeDriveIdentity={sub:user.sub,email:user.email,owner};
+  // Inspect cloud history before allowing an empty fresh device to create automatic copies.
+  if(!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner)&&!deviceHasData())historyPause(true);
   scheduleBackup();notify("تم ربط Gmail: "+user.email);settings();
+  const firstVisit=!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner);
+  localStorage.setItem(HISTORY_PROMPT_PREFIX+owner,"yes");
+  await showHistory(firstVisit);
  }catch(e){notify("فشل اتصال Gmail: "+e.message);if(app.page==="settings")settings()}
 }
 async function perform(action,target){
@@ -707,7 +793,7 @@ async function perform(action,target){
   case "clear-cart":if(!app.cart.length||confirm("تفريغ السلة؟")){app.cart=[];app.discount=0;pos()}return;
   case "checkout":return checkout();case "invoice":return showInvoice(target.dataset.id);
   case "print":return window.print();case "logout":return logout();
-  case "connect-drive":return connectDrive();case "change-drive-account":return connectDrive(true);case "backup-drive":return cloudBackup();
+  case "connect-drive":return connectDrive();case "change-drive-account":return connectDrive(true);case "refresh-history":return showHistory();case "restore-history":return restoreHistory(target.dataset.id);case "continue-empty-device":return continueEmptyDevice();case "backup-drive":return cloudBackup();
   case "restore-drive":return cloudRestore();case "export":return exportJSON();
   case "import":return importJSON();
  }
