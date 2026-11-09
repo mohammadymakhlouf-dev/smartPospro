@@ -79,8 +79,8 @@ const DriveAuth=(()=>{
   if(!owner)throw Error("حساب النسخ الاحتياطي غير محدد");
   let files=[],pageToken="";
   do{
-   const params={spaces:"appDataFolder",q:"name contains '"+archivePrefix(owner)+"' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",page_size:"1000"};
-   if(pageToken)params.page_token=pageToken;
+   const params={spaces:"appDataFolder",q:"name contains '"+archivePrefix(owner)+"' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",pageSize:"1000"};
+   if(pageToken)params.pageToken=pageToken;
    const response=await api(DRIVE_API+"/files?"+new URLSearchParams(params));
    const payload=await response.json();
    files.push(...(payload.files||[]).filter(f=>f.name.startsWith(archivePrefix(owner))));
@@ -93,7 +93,7 @@ const DriveAuth=(()=>{
   if(!normalized)return listHistory(owner);
   let files=[],pageToken="";
   do{
-   const params={spaces:"appDataFolder",q:"name contains 'smartpos-blue-history-' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",page_size:"1000"};
+   const params={spaces:"appDataFolder",q:"name contains 'smartpos-blue-history-' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",pageSize:"1000"};
    if(pageToken)params.pageToken=pageToken;
    const response=await api(DRIVE_API+"/files?"+new URLSearchParams(params));
    const result=await response.json();
