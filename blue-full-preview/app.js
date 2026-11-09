@@ -684,7 +684,7 @@ function settings(){
  '<p class="notice">استعادة نسخة قديمة تستبدل بيانات الجهاز الحالي. صدّر نسخة محلية قبل الاستعادة. لا تستخدم النسخ التلقائي على جهازين لنفس المحل، لأنها ليست مزامنة آنية.</p></div>'+
  '<div class="card"><h2>نسخة احتياطية محلية</h2><div class="actions"><button data-action="export">تحميل نسخة JSON</button><label style="margin:0">اختيار نسخة للاستعادة<input type="file" id="importFile" accept="application/json,.json"></label><button data-action="import">استعادة النسخة</button></div><p class="muted">ملف JSON غير مشفر. احفظه في مكان آمن ولا تشاركه.</p></div>';
  if($("attachLocalForm"))$("attachLocalForm").onsubmit=attachLocalLogin;
- if(cloud)showHistory(false);
+ if(cloud)showHistory(historyPaused());
  $("autoBackupEnabled").onchange=updateBackupSettings;
  $("autoBackupMinutes").onchange=updateBackupSettings;
 }
@@ -718,6 +718,7 @@ async function cloudBackup(manual=true){
  if(backupRunning){if(manual)notify("هناك عملية نسخ احتياطي جارية");return}
  if(!app.user||!app.data)return;
  if(!driveConnectedForCurrent()){if(manual)notify("جدد اتصال Gmail لهذا المستخدم من الإعدادات");return}
+ if(historyPaused()){if(manual)notify("اختر استعادة نسخة أو متابعة دون استعادة قبل رفع البيانات");return}
  if(!navigator.onLine){if(manual)notify("الإنترنت غير متاح");return}
  const owner=app.user.sub,preference=backupPrefs();
  if(!manual&&(historyPaused()||!preference.enabled||(preference.lastSuccess&&preference.lastDataUpdatedAt===app.data.updatedAt)))return;
@@ -779,7 +780,7 @@ async function connectDrive(change=false){
   scheduleBackup();notify("تم ربط Gmail: "+user.email);settings();
   const firstVisit=!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner);
   localStorage.setItem(HISTORY_PROMPT_PREFIX+owner,"yes");
-  await showHistory(firstVisit);
+  await showHistory(firstVisit||historyPaused());
  }catch(e){notify("فشل اتصال Gmail: "+e.message);if(app.page==="settings")settings()}
 }
 async function perform(action,target){
