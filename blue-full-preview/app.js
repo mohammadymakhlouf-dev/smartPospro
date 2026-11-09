@@ -775,12 +775,12 @@ async function connectDrive(change=false){
   if(!change&&!owner.startsWith("local:")&&!previous&&user.sub!==owner){dropDriveSession();throw Error("اختر حساب Google الأصلي لهذا المحل")}
   localStorage.setItem(DRIVE_BIND_PREFIX+owner,JSON.stringify({sub:user.sub,email:user.email,updatedAt:new Date().toISOString()}));
   activeDriveIdentity={sub:user.sub,email:user.email,owner};
+  if(change||previous?.sub!==user.sub){const pref=backupPrefs();pref.lastSuccess=0;pref.lastDataUpdatedAt="";saveBackupPrefs(pref)}
   // Inspect cloud history before allowing an empty fresh device to create automatic copies.
   if(!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner)&&!deviceHasData())historyPause(true);
   scheduleBackup();notify("تم ربط Gmail: "+user.email);settings();
-  const firstVisit=!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner);
   localStorage.setItem(HISTORY_PROMPT_PREFIX+owner,"yes");
-  await showHistory(firstVisit||historyPaused());
+  // The settings screen already loads the history and shows the new-device decision.
  }catch(e){notify("فشل اتصال Gmail: "+e.message);if(app.page==="settings")settings()}
 }
 async function perform(action,target){
