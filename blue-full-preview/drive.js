@@ -70,9 +70,46 @@ const DriveAuth=(()=>{
   }
   return (await api(DRIVE_API+"/files/"+encodeURIComponent(file.id)+"?alt=media")).json();
  };
+
+ // Immutable historical snapshots. A unique filename is created for every backup.
+ const ARCHIVE_PREFIX="smartpos-blue-history-";
+ const safeOwner=owner=>Array.from(new TextEncoder().encode(String(owner)),b=>b.toString(16).padStart(2,"0")).join("");
+ const archivePrefix=owner=>ARCHIVE_PREFIX+safeOwner(owner)+"-";
+ const listHistory=async(owner)=>{
+  if(!owner)throw Error("حساب النسخ الاحتياطي غير محدد");
+  let files=[],pageToken="";
+  do{
+   const params={spaces:"appDataFolder",q:"name contains '"+archivePrefix(owner)+"' and trashed = false",fields:"nextPageToken,files(id,name,modifiedTime,createdTime,size,description)",page_size:"1000"};
+   if(pageToken)params.page_token=pageToken;
+   const response=await api(DRIVE_API+"/files?"+new URLSearchParams(params));
+   const payload=await response.json();
+   files.push(...(payload.files||[]).filter(f=>f.name.startsWith(archivePrefix(owner))));
+   pageToken=payload.nextPageToken||"";
+  }while(pageToken&&files.length<5000);
+  return files.sort((a,b)=>new Date(b.createdTime||b.modifiedTime)-new Date(a.createdTime||a.modifiedTime));
+ };
+ const createHistory=async(snapshot,label,type="manual")=>{
+  if(!snapshot?.ownerSub)throw Error("معرف المستخدم مفقود");
+  const stamp=new Date().toISOString().replace(/[:.]/g,"-");
+  const filename=archivePrefix(snapshot.ownerSub)+stamp+"-"+crypto.randomUUID()+".json";
+  const metadata={name:filename,parents:["appDataFolder"],mimeType:"application/json",
+    description:JSON.stringify({label:String(label||"نسخة احتياطية").slice(0,100),type,at:snapshot.exportedAt,
+      username:snapshot.ownerUsername||"",products:snapshot.data?.products?.length||0,
+      sales:snapshot.data?.sales?.length||0})};
+  const boundary="smartpos_"+crypto.randomUUID();
+  const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n",JSON.stringify(metadata),
+   "\r\n--"+boundary+"\r\nContent-Type: application/json\r\n\r\n",JSON.stringify(snapshot),"\r\n--"+boundary+"--"]);
+  const response=await api(DRIVE_UPLOAD+"?uploadType=multipart",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+boundary},body});
+  return response.json();
+ };
+ const readHistory=async(fileId,owner)=>{
+  const history=await listHistory(owner);
+  if(!history.some(x=>x.id===fileId))throw Error("هذه النسخة لا تخص المستخدم المحدد");
+  return (await api(DRIVE_API+"/files/"+encodeURIComponent(fileId)+"?alt=media")).json();
+ };
  const logout=()=>{
   const old=token;token="";expires=0;
   if(old&&ready())google.accounts.oauth2.revoke(old,()=>{});
  };
- return {authenticate,connected,upload,download,logout,ready};
+ return {authenticate,connected,upload,download,logout,ready,listHistory,createHistory,readHistory};
 })();
