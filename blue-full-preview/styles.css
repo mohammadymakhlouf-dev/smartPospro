@@ -118,3 +118,15 @@ nav button.active,nav button:hover{background:#2578cd;color:#fff}
 .remember-row input{width:18px;height:18px;margin:0;flex:none}
 #signin .wide{margin-top:8px}
 #registerArea{margin:12px 0 0}
+
+/* Smart backup history */
+.backup-history{padding:12px 0}
+.backup-history .actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:15px}
+.backup-history .actions input{min-width:200px;flex:1;max-width:440px}
+.backup-day{padding:10px 0}
+.backup-day h3{color:#1355a7;font-size:15px;margin:10px 0}
+.backup-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#f4f9ff;border:1px solid #d9e5f5;border-radius:13px;margin:7px 0;padding:12px}
+.backup-row p{margin:6px 0 0}
+.backup-row button{white-space:nowrap;background:#159947}
+#newDeviceDecision{background:#fff8e7;border:1px solid #f0d6a0;padding:13px;border-radius:12px;margin:12px 0}
+@media(max-width:500px){.backup-row{align-items:flex-start;flex-direction:column}.backup-row button{width:100%}}
