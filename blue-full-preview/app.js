@@ -173,15 +173,15 @@ async function showHistory(notifyNewDevice=false){
   const grouped=list.reduce((m,f)=>{const key=String(historyDate(f)).slice(0,10)||"unknown";(m[key]??=[]).push(f);return m},{});
   const keys=Object.keys(grouped).sort().reverse();
   $("historyArea").innerHTML=keys.length?keys.map(k=>'<div class="backup-day"><h3>'+esc(k)+'</h3>'+grouped[k].map(historyRow).join("")+'</div>').join(""):'<p class="muted">لا توجد نسخ مؤرخة لهذا المستخدم بعد. أنشئ أول نسخة الآن.</p>';
-  if(notifyNewDevice&&list.length&&!deviceHasData()){
+  if(notifyNewDevice&&list.length){
     historyPause(true);
-    alert("تنبيه جهاز جديد: توجد نسخ احتياطية محفوظة لهذا المستخدم. الجهاز الحالي فارغ. اختر نسخة لاستعادتها، أو اضغط متابعة دون استعادة. لن تُرفع نسخة تلقائية قبل اتخاذ القرار.");
+    alert("تنبيه جهاز جديد: توجد نسخ احتياطية محفوظة لهذا المستخدم. اختر نسخة لاستعادتها، أو اضغط متابعة دون استعادة. لن تُرفع نسخة تلقائية قبل اتخاذ القرار.");
     $("newDeviceDecision").classList.remove("hidden");
   }else if(notifyNewDevice){
     historyPause(false);
   }
  }catch(e){
-  if($("historyArea"))$("historyArea").textContent="تعذر جلب سجل النسخ: "+e.message;
+  if($("historyArea"))$("historyArea").textContent="تعذر جلب سجل النسخ: "+e.message+" — لن يُرفع شيء تلقائيًا إن كان هذا جهازًا جديدًا حتى تتم المراجعة.";
  }
 }
 async function restoreHistory(fileId){
@@ -672,7 +672,7 @@ function settings(){
  '<div class="card"><h2>Google Drive — النسخ الاحتياطي</h2><p class="muted">كل مستخدم يربط Gmail مستقلًا، ويمكن استخدام Gmail نفسه لأكثر من مستخدم دون استبدال نسخهم.</p>'+
  '<p><b>Gmail المرتبط:</b> '+(linked?esc(linked.email||"مرتبط سابقًا — جدد الاتصال لعرض البريد"):"غير مرتبط")+'</p>'+
  '<p id="driveStatus" class="chip">'+(cloud?"متصل بـ Google Drive":"غير متصل بـ Google Drive")+'</p>'+
- '<div class="actions"><button class="primary" data-action="connect-drive">'+(linked?"تجديد اتصال Gmail":"ربط Gmail")+'</button>'+(linked?'<button data-action="change-drive-account">تغيير Gmail المرتبط</button>':"")+'<button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة من Drive</button></div>'+
+ '<div class="actions"><button class="primary" data-action="connect-drive">'+(linked?"تجديد اتصال Gmail":"ربط Gmail")+'</button>'+(linked?'<button data-action="change-drive-account">تغيير Gmail المرتبط</button>':"")+'<button data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة الآن على Drive</button><button data-action="restore-drive" '+(!cloud?"disabled":"")+'>استعادة النسخة القديمة (قبل سجل النسخ)</button></div>'+
  '<div class="backup-history"><hr><h2>سجل النسخ بتاريخ واسم</h2><p class="muted">كل نسخة تُحفظ في ملف مستقل ولا تستبدل النسخ السابقة. تستطيع كتابة اسم مميز لنسختك اليدوية.</p><div class="actions"><input id="historyBackupName" maxlength="100" placeholder="اسم النسخة (مثال: قبل الجرد)"><button class="primary" data-action="backup-drive" '+(!cloud?"disabled":"")+'>حفظ نسخة باسم جديد</button><button data-action="refresh-history" '+(!cloud?"disabled":"")+'>تحديث السجل</button></div><div id="newDeviceDecision" class="notice hidden"><b>هذا الجهاز فارغ وتوجد نسخ سابقة على Drive.</b><p>اختر نسخة لاستعادتها أو تابع ببيانات منفصلة. لن يتم رفع نسخة تلقائية حتى تختار.</p><button data-action="continue-empty-device">متابعة دون استعادة</button></div><div id="historyArea"><p class="muted">اضغط «تحديث السجل» لعرض النسخ المحفوظة.</p></div></div>'+
  '<hr><h2>النسخ الاحتياطي التلقائي</h2>'+
  '<label class="backup-toggle"><input id="autoBackupEnabled" type="checkbox" '+(p.enabled?"checked":"")+'> تفعيل النسخ الاحتياطي التلقائي إلى Google Drive</label>'+
