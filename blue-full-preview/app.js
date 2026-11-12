@@ -143,6 +143,8 @@ const BACKUP_INTERVALS=[5,15,30,60,180,360,720,1440];
 
 const HISTORY_PROMPT_PREFIX="smartpos-blue-history-checked-";
 const HISTORY_PAUSE_PREFIX="smartpos-blue-history-pause-";
+const HISTORY_DEVICE_KEY="smartpos-blue-preview-device-id";
+function historyDeviceId(){let v=localStorage.getItem(HISTORY_DEVICE_KEY);if(!v){v=crypto.randomUUID();localStorage.setItem(HISTORY_DEVICE_KEY,v)}return v}
 function localUsername(){
  const owner=app.user?.sub;
  return Object.entries(getLocalUsers()).find(([name,u])=>u.sub===owner)?.[0]||"";
@@ -175,10 +177,11 @@ async function showHistory(notifyNewDevice=false){
   $("historyArea").innerHTML=keys.length?keys.map(k=>'<div class="backup-day"><h3>'+esc(k)+'</h3>'+grouped[k].map(historyRow).join("")+'</div>').join(""):'<p class="muted">لا توجد نسخ مؤرخة لهذا المستخدم بعد. أنشئ أول نسخة الآن.</p>';
   if(notifyNewDevice&&list.length){
     historyPause(true);
-    alert("تنبيه جهاز جديد: توجد نسخ احتياطية محفوظة لهذا المستخدم. اختر نسخة لاستعادتها، أو اضغط متابعة دون استعادة. لن تُرفع نسخة تلقائية قبل اتخاذ القرار.");
+    alert("تنبيه جهاز أو ربط جديد: توجد نسخ سابقة لهذا المستخدم على Google Drive. اختر نسخة لاستعادتها، أو تابع ببيانات الجهاز الحالية. لن يتم رفع نسخة جديدة حتى تتخذ قرارًا.");
     $("newDeviceDecision").classList.remove("hidden");
   }else if(notifyNewDevice){
     historyPause(false);
+    scheduleBackup();
   }
  }catch(e){
   if($("historyArea"))$("historyArea").textContent="تعذر جلب سجل النسخ: "+e.message+" — لن يُرفع شيء تلقائيًا إن كان هذا جهازًا جديدًا حتى تتم المراجعة.";
@@ -203,6 +206,7 @@ async function restoreHistory(fileId){
   if(app.user.sub!==owner)throw Error("تغير المستخدم أثناء الاستعادة");
   await commit(data);
   historyPause(false);
+  scheduleBackup();
   app.cart=[];goto("dashboard");
   notify("تمت استعادة النسخة. بقي سجل النسخ القديم محفوظًا.");
  }catch(e){notify("تعذرت الاستعادة: "+e.message)}
@@ -234,6 +238,7 @@ function saveBackupPrefs(prefs){
 }
 function backupStatusText(){
  const p=backupPrefs();
+ if(historyPaused())return "النسخ متوقف لحين مراجعة السجل أو اختيار متابعة دون استعادة";
  if(!p.enabled)return "النسخ التلقائي متوقف";
  if(!navigator.onLine)return "بانتظار عودة الإنترنت";
  if(!linkedDrive())return "اربط Gmail بهذا المستخدم أولًا";
@@ -688,7 +693,7 @@ function settings(){
  $("autoBackupEnabled").onchange=updateBackupSettings;
  $("autoBackupMinutes").onchange=updateBackupSettings;
 }
-function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerUsername:localUsername(),ownerEmail:linkedDrive()?.email||app.user.email,exportedAt:new Date().toISOString(),data:clone(app.data)}}
+function buildSnapshot(){return {app:"SmartPOS Pro",schema:1,ownerSub:app.user.sub,ownerUsername:localUsername(),ownerEmail:linkedDrive()?.email||app.user.email,deviceId:historyDeviceId(),exportedAt:new Date().toISOString(),data:clone(app.data)}}
 function validBackup(backup,allowMatchingUsername=false){
  if(backup?.app!=="SmartPOS Pro"||backup?.schema!==1||!(backup.ownerSub===app.user.sub||(allowMatchingUsername&&localUsername()&&backup.ownerUsername===localUsername()))||
  !backup.data||!Array.isArray(backup.data.products)||!Array.isArray(backup.data.sales)||
@@ -777,9 +782,11 @@ async function connectDrive(change=false){
   activeDriveIdentity={sub:user.sub,email:user.email,owner};
   if(change||previous?.sub!==user.sub){const pref=backupPrefs();pref.lastSuccess=0;pref.lastDataUpdatedAt="";saveBackupPrefs(pref)}
   // Inspect cloud history before allowing an empty fresh device to create automatic copies.
-  if(!localStorage.getItem(HISTORY_PROMPT_PREFIX+owner)&&!deviceHasData())historyPause(true);
+  const promptedKey=HISTORY_PROMPT_PREFIX+owner+"-"+user.sub;
+  const mustReview=change||!localStorage.getItem(promptedKey);
+  if(mustReview)historyPause(true);
   scheduleBackup();notify("تم ربط Gmail: "+user.email);settings();
-  localStorage.setItem(HISTORY_PROMPT_PREFIX+owner,"yes");
+  localStorage.setItem(promptedKey,"yes");
   // The settings screen already loads the history and shows the new-device decision.
  }catch(e){notify("فشل اتصال Gmail: "+e.message);if(app.page==="settings")settings()}
 }
