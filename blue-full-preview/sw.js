@@ -1,4 +1,4 @@
-const CACHE = "smartpos-blue-full-preview-8";
+const CACHE = "smartpos-blue-full-preview-9";
 const ASSETS = ["./", "./index.html", "./app.js", "./styles.css", "./drive.js", "./manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
